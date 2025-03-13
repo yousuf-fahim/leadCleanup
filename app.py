@@ -107,3 +107,17 @@ if uploaded_file:
             file_name="output.csv",
             mime="text/csv"
         )
+
+        # Instructions for My Maps
+        st.markdown("""
+        ### How to Import into Google My Maps:
+        1. Go to [Google My Maps](https://www.google.com/mymaps).
+        2. Click **Create a new map**.
+        3. In the new map, click **Import** under the layer section.
+        4. Upload the downloaded `output.csv` file.
+        5. Set the following:
+           - **Placemarker Pins**: Select the `ADDRESS` column.
+           - **Placemarker Name (Title)**: Select the `DATA` column.
+        6. Dismiss any locations that result in an error during import.
+        7. Zoom out and manually delete any pins that are significantly distant from the main cluster (e.g., if most pins are in Miami, Florida, remove pins more than 50 miles / 80 km away).
+        """)
