@@ -52,6 +52,7 @@ unit_abbr = {
     'Hangar': 'Hangar', 'Slip': 'Slip', 'Pier': 'Pier', 'Dock': 'Dock'
 }
 
+
 def clean_address(address):
     """Parse and expand abbreviations in an address."""
     try:
@@ -75,49 +76,151 @@ def clean_address(address):
     except usaddress.RepeatedLabelError:
         return address
 
+
 # Streamlit UI
 st.title("📍 Address Cleaner")
 
 # Add hyperlink for sample CSV download
-st.markdown("[📥 Download Sample CSV](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing)", unsafe_allow_html=True)
+st.markdown(
+    "[📥 Download Sample CSV](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing)",
+    unsafe_allow_html=True)
+
+# Dropdown for selecting processing option
+option = st.selectbox(
+    "Select Cleaning Option",
+    [
+        "Address + HoNWIncome",
+        "Address + HoNWIncome & Phone",
+        "Sha256",
+        "Full Combined Address",
+        "Phone & Credit Score"
+    ]
+)
 
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-if uploaded_file:
+if uploaded_file and st.button("Process"):
     df = pd.read_csv(uploaded_file)
 
-    if "PERSONAL_ADDRESS" not in df.columns or "PERSONAL_CITY" not in df.columns:
-        st.error("CSV file must contain 'PERSONAL_ADDRESS' and 'PERSONAL_CITY' columns.")
-    else:
+    # Create a progress bar with a nice label
+    st.write("Processing your file...")
+    progress_bar = st.progress(0)
+    total_steps = 5  # Number of processing steps
+
+    # Step 1: Check for required columns
+    if option == "Address + HoNWIncome":
+        required_cols = ['PERSONAL_ADDRESS', 'PERSONAL_CITY']
+    elif option == "Address + HoNWIncome & Phone":
+        required_cols = ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'MOBILE_PHONE', 'DNC']
+    elif option == "Sha256":
+        required_cols = ['FIRST_NAME', 'LAST_NAME', 'SHA256_PERSONAL_EMAIL', 'SHA256_BUSINESS_EMAIL']
+    elif option == "Full Combined Address":
+        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE',
+                         'PERSONAL_ZIP']
+    elif option == "Phone & Credit Score":
+        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE',
+                         'PERSONAL_ZIP']
+        if 'MOBILE_PHONE' not in df.columns and 'DIRECT_NUMBER' not in df.columns:
+            st.error("CSV file must contain at least one of 'MOBILE_PHONE' or 'DIRECT_NUMBER'.")
+            st.stop()
+
+    if not all(col in df.columns for col in required_cols):
+        st.error(f"CSV file must contain the following columns: {', '.join(required_cols)}")
+        st.stop()
+
+    progress_bar.progress(1 / total_steps)
+
+    # Step 2: Filter and clean data
+    if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Full Combined Address",
+                  "Phone & Credit Score"]:
         df = df[df['PERSONAL_ADDRESS'].notna()]
         df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+
+    progress_bar.progress(2 / total_steps)
+
+    # Step 3: Process data based on option
+    if option == "Address + HoNWIncome":
         df['ADDRESS'] = df['PERSONAL_ADDRESS_CLEAN'] + ' ' + df['PERSONAL_CITY']
         df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
         df['NET_WORTH'] = df['NET_WORTH'].fillna('')
         df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
         df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE']
         output_df = df[['ADDRESS', 'DATA']]
+    elif option == "Address + HoNWIncome & Phone":
+        df['ADDRESS'] = df['PERSONAL_ADDRESS_CLEAN'] + ' ' + df['PERSONAL_CITY']
+        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
+        df['NET_WORTH'] = df['NET_WORTH'].fillna('')
+        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
+        df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
+        df['DNC'] = df['DNC'].fillna('N')
+        df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE'] + \
+                     df.apply(lambda row: ' | Phone ' + str(row['MOBILE_PHONE']) if row['DNC'] != 'Y' and row[
+                         'MOBILE_PHONE'] != '' else '', axis=1)
+        output_df = df[['ADDRESS', 'DATA']]
+    elif option == "Sha256":
+        df['SHA256'] = df['SHA256_PERSONAL_EMAIL'].fillna(df['SHA256_BUSINESS_EMAIL'])
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'SHA256']]
+    elif option == "Full Combined Address":
+        address_clean = df['PERSONAL_ADDRESS_CLEAN'].astype(str)
+        city = df['PERSONAL_CITY'].apply(lambda x: str(x) if pd.notna(x) else '')
+        state = df['PERSONAL_STATE'].apply(lambda x: str(x) if pd.notna(x) else '')
+        zip_code = df['PERSONAL_ZIP'].apply(lambda x: str(x) if pd.notna(x) else '')
+        df['FULL_ADDRESS'] = address_clean + ' ' + city + ', ' + state + ' ' + zip_code
+        for col in ['DIRECT_NUMBER', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE',
+                    'CHILDREN', 'AGE_RANGE', 'SKIPTRACE_CREDIT_RATING', 'LINKEDIN_URL', 'DNC']:
+            if col in df.columns:
+                df[col] = df[col].fillna('')
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'DIRECT_NUMBER', 'FULL_ADDRESS', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL',
+                        'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE', 'CHILDREN', 'AGE_RANGE', 'SKIPTRACE_CREDIT_RATING',
+                        'LINKEDIN_URL', 'DNC']]
+    elif option == "Phone & Credit Score":
+        if 'MOBILE_PHONE' in df.columns and 'DIRECT_NUMBER' in df.columns:
+            df['PHONE'] = df['MOBILE_PHONE'].fillna(df['DIRECT_NUMBER'])
+        elif 'MOBILE_PHONE' in df.columns:
+            df['PHONE'] = df['MOBILE_PHONE']
+        elif 'DIRECT_NUMBER' in df.columns:
+            df['PHONE'] = df['DIRECT_NUMBER']
+        for col in ['PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
+                    'DNC']:
+            if col in df.columns:
+                df[col] = df[col].fillna('')
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY',
+                        'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
+                        'DNC']]
 
-        st.success("✅ Processing complete!")
+    progress_bar.progress(3 / total_steps)
 
-        # Download button
-        st.download_button(
-            label="Download Processed CSV",
-            data=output_df.to_csv(index=False).encode('utf-8'),
-            file_name="output.csv",
-            mime="text/csv"
-        )
+    # Step 4: Prepare output
+    output_df = output_df.reset_index(drop=True)
 
-        # Instructions for My Maps
+    progress_bar.progress(4 / total_steps)
+
+    # Step 5: Provide download
+    st.success("✅ Processing complete!")
+    st.download_button(
+        label="Download Processed CSV",
+        data=output_df.to_csv(index=False).encode('utf-8'),
+        file_name=f"output_{option.lower().replace(' ', '_')}.csv",
+        mime="text/csv"
+    )
+
+    progress_bar.progress(5 / total_steps)
+
+    # Display note
+    st.info(
+        f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned, and relevant data has been combined as per the selected configuration. Please download the processed CSV file above.")
+
+    # Instructions for My Maps (only for options with ADDRESS)
+    if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
         st.markdown("""
         ### How to Import into Google My Maps:
         1. Go to [Google My Maps](https://www.google.com/mymaps).
         2. Click **Create a new map**.
         3. In the new map, click **Import** under the layer section.
-        4. Upload the downloaded `output.csv` file.
+        4. Upload the downloaded CSV file.
         5. Set the following:
            - **Placemarker Pins**: Select the `ADDRESS` column.
            - **Placemarker Name (Title)**: Select the `DATA` column.
         6. Dismiss any locations that result in an error during import.
-        7. Zoom out and manually delete any pins that are significantly distant from the main cluster (e.g., if most pins are in Miami, Florida, remove pins more than 50 miles / 80 km away).
+        7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
         """)
