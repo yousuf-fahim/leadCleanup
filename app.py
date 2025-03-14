@@ -85,21 +85,33 @@ st.markdown(
     "[📥 Download Sample CSV](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing)",
     unsafe_allow_html=True)
 
-# Dropdown for selecting processing option
-option = st.selectbox(
-    "Select Cleaning Option",
-    [
-        "Address + HoNWIncome",
-        "Address + HoNWIncome & Phone",
-        "Sha256",
-        "Full Combined Address",
-        "Phone & Credit Score"
-    ]
-)
+# Dropdown for selecting processing option with a default "Select an option"
+options = [
+    "Select an option",
+    "Address + HoNWIncome",
+    "Address + HoNWIncome & Phone",
+    "Sha256",
+    "Full Combined Address",
+    "Phone & Credit Score"
+]
+option = st.selectbox("Select Cleaning Option", options, index=0)
+
+# Short descriptions for each option
+descriptions = {
+    "Address + HoNWIncome": "Combines cleaned address with homeowner status, net worth, and income range.",
+    "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC).",
+    "Sha256": "Provides names with hashed email data, preferring personal email hash.",
+    "Full Combined Address": "Generates a comprehensive dataset with full address and additional metadata.",
+    "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details."
+}
+
+# Display description based on selected option
+if option != "Select an option":
+    st.info(descriptions[option])
 
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-if uploaded_file and st.button("Process"):
+if uploaded_file and option != "Select an option" and st.button("Process"):
     df = pd.read_csv(uploaded_file)
 
     # Create a progress bar with a nice label
@@ -224,3 +236,5 @@ if uploaded_file and st.button("Process"):
         6. Dismiss any locations that result in an error during import.
         7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
         """)
+elif option == "Select an option":
+    st.warning("Please select a cleaning option before processing.")
