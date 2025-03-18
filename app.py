@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import usaddress
 import re
+import io
+import zipfile
 
 # Define abbreviation dictionaries
 directional_abbr = {
@@ -52,47 +54,51 @@ unit_abbr = {
     'Hangar': 'Hangar', 'Slip': 'Slip', 'Pier': 'Pier', 'Dock': 'Dock'
 }
 
-
 def clean_address(address):
-    """Parse and expand abbreviations in an address."""
+    """Parse and expand abbreviations in an address with fallback for malformed addresses."""
     try:
         parsed, address_type = usaddress.tag(address)
         if address_type == 'Street Address':
             cleaned_components = []
             for key, value in parsed.items():
-                if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional'] and value in directional_abbr:
-                    cleaned_components.append(directional_abbr[value])
-                elif key == 'StreetNamePostType' and value in street_type_abbr:
-                    cleaned_components.append(street_type_abbr[value])
-                elif key == 'OccupancyType' and value in unit_abbr:
-                    cleaned_components.append(unit_abbr[value])
+                if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
+                    cleaned_components.append(directional_abbr.get(value, value))
+                elif key == 'StreetNamePostType':
+                    cleaned_components.append(street_type_abbr.get(value, value))
+                elif key == 'OccupancyType':
+                    cleaned_components.append(unit_abbr.get(value, value))
                 else:
                     cleaned_components.append(value)
             return ' '.join(cleaned_components)
         elif address_type == 'PO Box':
             return 'PO Box ' + parsed['USPSBoxID']
         else:
-            return address
+            words = address.split()
+            cleaned = [directional_abbr.get(word, street_type_abbr.get(word, unit_abbr.get(word, word))) for word in words]
+            return ' '.join(cleaned)
     except usaddress.RepeatedLabelError:
-        return address
-
+        words = address.split()
+        cleaned = [directional_abbr.get(word, street_type_abbr.get(word, unit_abbr.get(word, word))) for word in words]
+        return ' '.join(cleaned)
 
 # Streamlit UI
 st.title("📍 Address Cleaner")
 
-# Add hyperlink for sample CSV download
 st.markdown(
     "[📥 Download Sample CSV](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing)",
     unsafe_allow_html=True)
 
-# Dropdown for selecting processing option with a default "Select an option"
+uploaded_file = st.file_uploader("Upload your CSV file (max 300MB)", type=["csv"], accept_multiple_files=False,
+                                 help="Maximum file size: 300MB (depending on deployment environment)")
+
 options = [
     "Select an option",
     "Address + HoNWIncome",
     "Address + HoNWIncome & Phone",
     "Sha256",
     "Full Combined Address",
-    "Phone & Credit Score"
+    "Phone & Credit Score",
+    "Split by State"
 ]
 option = st.selectbox("Select Cleaning Option", options, index=0)
 
@@ -102,22 +108,20 @@ descriptions = {
     "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC).",
     "Sha256": "Provides names with hashed email data, preferring personal email hash.",
     "Full Combined Address": "Generates a comprehensive dataset with full address and additional metadata.",
-    "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details."
+    "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details.",
+    "Split by State": "Splits the dataset into multiple files based on the state in the PERSONAL_STATE column."
 }
 
 # Display description based on selected option
 if option != "Select an option":
     st.info(descriptions[option])
 
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
-
 if uploaded_file and option != "Select an option" and st.button("Process"):
     df = pd.read_csv(uploaded_file)
 
-    # Create a progress bar with a nice label
     st.write("Processing your file...")
     progress_bar = st.progress(0)
-    total_steps = 5  # Number of processing steps
+    total_steps = 6
 
     # Step 1: Check for required columns
     if option == "Address + HoNWIncome":
@@ -135,6 +139,8 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         if 'MOBILE_PHONE' not in df.columns and 'DIRECT_NUMBER' not in df.columns:
             st.error("CSV file must contain at least one of 'MOBILE_PHONE' or 'DIRECT_NUMBER'.")
             st.stop()
+    elif option == "Split by State":
+        required_cols = ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE']
 
     if not all(col in df.columns for col in required_cols):
         st.error(f"CSV file must contain the following columns: {', '.join(required_cols)}")
@@ -144,7 +150,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     # Step 2: Filter and clean data
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Full Combined Address",
-                  "Phone & Credit Score"]:
+                  "Phone & Credit Score", "Split by State"]:
         df = df[df['PERSONAL_ADDRESS'].notna()]
         df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
 
@@ -178,11 +184,17 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         state = df['PERSONAL_STATE'].apply(lambda x: str(x) if pd.notna(x) else '')
         zip_code = df['PERSONAL_ZIP'].apply(lambda x: str(x) if pd.notna(x) else '')
         df['FULL_ADDRESS'] = address_clean + ' ' + city + ', ' + state + ' ' + zip_code
-        for col in ['DIRECT_NUMBER', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE',
+        if 'MOBILE_PHONE' in df.columns and 'DIRECT_NUMBER' in df.columns:
+            df['PHONE'] = df['MOBILE_PHONE'].fillna(df['DIRECT_NUMBER'])
+        elif 'MOBILE_PHONE' in df.columns:
+            df['PHONE'] = df['MOBILE_PHONE']
+        elif 'DIRECT_NUMBER' in df.columns:
+            df['PHONE'] = df['DIRECT_NUMBER']
+        for col in ['PHONE', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE',
                     'CHILDREN', 'AGE_RANGE', 'SKIPTRACE_CREDIT_RATING', 'LINKEDIN_URL', 'DNC']:
             if col in df.columns:
                 df[col] = df[col].fillna('')
-        output_df = df[['FIRST_NAME', 'LAST_NAME', 'DIRECT_NUMBER', 'FULL_ADDRESS', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL',
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'FULL_ADDRESS', 'PERSONAL_EMAIL', 'BUSINESS_EMAIL',
                         'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE', 'CHILDREN', 'AGE_RANGE', 'SKIPTRACE_CREDIT_RATING',
                         'LINKEDIN_URL', 'DNC']]
     elif option == "Phone & Credit Score":
@@ -199,42 +211,127 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY',
                         'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
                         'DNC']]
+    elif option == "Split by State":
+        output_df = df  # Keep all original columns
 
     progress_bar.progress(3 / total_steps)
 
-    # Step 4: Prepare output
-    output_df = output_df.reset_index(drop=True)
+    # Step 4: Split files if necessary
+    def split_dataframe(df, max_rows=2000):
+        return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
+
+    output_files = []
+    if option == "Split by State":
+        for state, group in output_df.groupby('PERSONAL_STATE'):
+            state_df = group  # Retain all columns from the original DataFrame
+            if len(state_df) > 2000:
+                split_dfs = split_dataframe(state_df)
+                for i, split_df in enumerate(split_dfs):
+                    output_files.append((f"output_split_by_state_{state}_{i + 1}", split_df))
+            else:
+                output_files.append((f"output_split_by_state_{state}", state_df))
+    else:
+        if len(output_df) > 2000:
+            split_dfs = split_dataframe(output_df)
+            for i, split_df in enumerate(split_dfs):
+                output_files.append((f"output_{option.lower().replace(' ', '_')}_part_{i + 1}", split_df))
+        else:
+            output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
 
     progress_bar.progress(4 / total_steps)
 
-    # Step 5: Provide download
+    # Step 5: Provide download options
     st.success("✅ Processing complete!")
-    st.download_button(
-        label="Download Processed CSV",
-        data=output_df.to_csv(index=False).encode('utf-8'),
-        file_name=f"output_{option.lower().replace(' ', '_')}.csv",
-        mime="text/csv"
-    )
+
+    # If multiple files, provide ZIP download at the top with custom styling
+    if len(output_files) > 1:
+        # Create ZIP file for all outputs
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for file_name, df_part in output_files:
+                csv_data = df_part.to_csv(index=False).encode('utf-8')
+                zip_file.writestr(f"{file_name}.csv", csv_data)
+        zip_buffer.seek(0)
+
+        # Inject custom CSS for styling the ZIP button
+        st.markdown(
+            """
+            <style>
+            .big-button {
+                background-color: #4CAF50;  /* Green background */
+                color: white;
+                padding: 15px 32px;         /* Larger padding */
+                text-align: center;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 16px;            /* Larger text */
+                margin: 4px 2px;
+                cursor: pointer;
+                border: none;
+                border-radius: 12px;        /* Rounded corners */
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Create the styled ZIP download button
+        st.download_button(
+            label="Download All Files as ZIP",
+            data=zip_buffer.getvalue(),
+            file_name="all_files.zip",
+            mime="application/zip",
+            key="download_all_zip",
+            help="Click to download all files as a ZIP",
+            type="primary"  # Enhances visibility
+        )
+
+    # Always provide individual download buttons
+    for file_name, df_part in output_files:
+        st.download_button(
+            label=f"Download {file_name}.csv",
+            data=df_part.to_csv(index=False).encode('utf-8'),
+            file_name=f"{file_name}.csv",
+            mime="text/csv"
+        )
 
     progress_bar.progress(5 / total_steps)
 
-    # Display note
+    # Step 6: Display note and instructions
     st.info(
-        f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned, and relevant data has been combined as per the selected configuration. Please download the processed CSV file above.")
+        f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned, "
+        f"and relevant data has been combined. Files are split if they exceed 2000 rows for My Maps compatibility. "
+        f"If multiple files are generated, you can download them individually or as a ZIP file."
+    )
 
-    # Instructions for My Maps (only for options with ADDRESS)
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
         st.markdown("""
         ### How to Import into Google My Maps:
         1. Go to [Google My Maps](https://www.google.com/mymaps).
         2. Click **Create a new map**.
         3. In the new map, click **Import** under the layer section.
-        4. Upload the downloaded CSV file.
+        4. Upload the downloaded CSV file(s).
         5. Set the following:
            - **Placemarker Pins**: Select the `ADDRESS` column.
            - **Placemarker Name (Title)**: Select the `DATA` column.
         6. Dismiss any locations that result in an error during import.
         7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
         """)
+    elif option == "Split by State":
+        st.markdown("""
+        ### How to Import into Google My Maps:
+        1. Go to [Google My Maps](https://www.google.com/mymaps).
+        2. Click **Create a new map**.
+        3. In the new map, click **Import** under the layer section.
+        4. Upload the downloaded CSV file(s) for each state (or extract from ZIP).
+        5. Set the following:
+           - **Placemarker Pins**: Select the `PERSONAL_ADDRESS_CLEAN` column or combine with `PERSONAL_CITY` and `PERSONAL_STATE`.
+           - **Placemarker Name (Title)**: Choose any relevant column (e.g., `FIRST_NAME`, `LAST_NAME`).
+        6. Dismiss any locations that result in an error during import.
+        7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+        """)
+
+    progress_bar.progress(6 / total_steps)
+
 elif option == "Select an option":
     st.warning("Please select a cleaning option before processing.")
