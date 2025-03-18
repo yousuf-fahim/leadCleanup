@@ -62,11 +62,12 @@ def clean_address(address):
             cleaned_components = []
             for key, value in parsed.items():
                 if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
-                    cleaned_components.append(directional_abbr.get(value, value))
+                    # Normalize to uppercase for lookup
+                    cleaned_components.append(directional_abbr.get(value.upper(), value))
                 elif key == 'StreetNamePostType':
-                    cleaned_components.append(street_type_abbr.get(value, value))
+                    cleaned_components.append(street_type_abbr.get(value.upper(), value))
                 elif key == 'OccupancyType':
-                    cleaned_components.append(unit_abbr.get(value, value))
+                    cleaned_components.append(unit_abbr.get(value.upper(), value))
                 else:
                     cleaned_components.append(value)
             return ' '.join(cleaned_components)
@@ -74,11 +75,12 @@ def clean_address(address):
             return 'PO Box ' + parsed['USPSBoxID']
         else:
             words = address.split()
-            cleaned = [directional_abbr.get(word, street_type_abbr.get(word, unit_abbr.get(word, word))) for word in words]
+            # Normalize to uppercase for lookup in fallback
+            cleaned = [directional_abbr.get(word.upper(), street_type_abbr.get(word.upper(), unit_abbr.get(word.upper(), word))) for word in words]
             return ' '.join(cleaned)
     except usaddress.RepeatedLabelError:
         words = address.split()
-        cleaned = [directional_abbr.get(word, street_type_abbr.get(word, unit_abbr.get(word, word))) for word in words]
+        cleaned = [directional_abbr.get(word.upper(), street_type_abbr.get(word.upper(), unit_abbr.get(word.upper(), word))) for word in words]
         return ' '.join(cleaned)
 
 # Streamlit UI
