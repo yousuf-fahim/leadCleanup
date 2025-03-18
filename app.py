@@ -88,8 +88,8 @@ st.markdown(
     "[📥 Download Sample CSV](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing)",
     unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("Upload your CSV file (max 300MB)", type=["csv"], accept_multiple_files=False,
-                                 help="Maximum file size: 300MB (depending on deployment environment)")
+uploaded_file = st.file_uploader("Upload your CSV file (max 200MB)", type=["csv"], accept_multiple_files=False,
+                                 help="Maximum file size: 200MB (depending on deployment environment)")
 
 options = [
     "Select an option",
