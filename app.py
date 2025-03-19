@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import usaddress
-import re
 import io
 import zipfile
 
@@ -62,7 +61,6 @@ def clean_address(address):
             cleaned_components = []
             for key, value in parsed.items():
                 if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
-                    # Normalize to uppercase for lookup
                     cleaned_components.append(directional_abbr.get(value.upper(), value))
                 elif key == 'StreetNamePostType':
                     cleaned_components.append(street_type_abbr.get(value.upper(), value))
@@ -75,7 +73,6 @@ def clean_address(address):
             return 'PO Box ' + parsed['USPSBoxID']
         else:
             words = address.split()
-            # Normalize to uppercase for lookup in fallback
             cleaned = [directional_abbr.get(word.upper(), street_type_abbr.get(word.upper(), unit_abbr.get(word.upper(), word))) for word in words]
             return ' '.join(cleaned)
     except usaddress.RepeatedLabelError:
@@ -104,17 +101,15 @@ options = [
 ]
 option = st.selectbox("Select Cleaning Option", options, index=0)
 
-# Short descriptions for each option
 descriptions = {
     "Address + HoNWIncome": "Combines cleaned address with homeowner status, net worth, and income range.",
     "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC).",
     "Sha256": "Provides names with hashed email data, preferring personal email hash.",
     "Full Combined Address": "Generates a comprehensive dataset with full address and additional metadata.",
     "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details.",
-    "Split by State": "Splits the dataset into multiple files based on the state in the PERSONAL_STATE column."
+    "Split by State": "Splits the dataset into one file per state based on the PERSONAL_STATE column."
 }
 
-# Display description based on selected option
 if option != "Select an option":
     st.info(descriptions[option])
 
@@ -133,11 +128,9 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     elif option == "Sha256":
         required_cols = ['FIRST_NAME', 'LAST_NAME', 'SHA256_PERSONAL_EMAIL', 'SHA256_BUSINESS_EMAIL']
     elif option == "Full Combined Address":
-        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE',
-                         'PERSONAL_ZIP']
+        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP']
     elif option == "Phone & Credit Score":
-        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE',
-                         'PERSONAL_ZIP']
+        required_cols = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP']
         if 'MOBILE_PHONE' not in df.columns and 'DIRECT_NUMBER' not in df.columns:
             st.error("CSV file must contain at least one of 'MOBILE_PHONE' or 'DIRECT_NUMBER'.")
             st.stop()
@@ -218,36 +211,32 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     progress_bar.progress(3 / total_steps)
 
-    # Step 4: Split files if necessary
+    # Step 4: Split files only for first two options at 2000 entries
     def split_dataframe(df, max_rows=2000):
         return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
 
     output_files = []
-    if option == "Split by State":
-        for state, group in output_df.groupby('PERSONAL_STATE'):
-            state_df = group  # Retain all columns from the original DataFrame
-            if len(state_df) > 2000:
-                split_dfs = split_dataframe(state_df)
-                for i, split_df in enumerate(split_dfs):
-                    output_files.append((f"output_split_by_state_{state}_{i + 1}", split_df))
-            else:
-                output_files.append((f"output_split_by_state_{state}", state_df))
-    else:
+    if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
         if len(output_df) > 2000:
             split_dfs = split_dataframe(output_df)
             for i, split_df in enumerate(split_dfs):
                 output_files.append((f"output_{option.lower().replace(' ', '_')}_part_{i + 1}", split_df))
         else:
             output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
+    elif option == "Split by State":
+        for state, group in output_df.groupby('PERSONAL_STATE'):
+            state_df = group  # Retain all columns from the original DataFrame
+            output_files.append((f"output_split_by_state_{state}", state_df))  # No 2000-row split
+    else:
+        # No splitting for Sha256, Full Combined Address, Phone & Credit Score
+        output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
 
     progress_bar.progress(4 / total_steps)
 
     # Step 5: Provide download options
     st.success("✅ Processing complete!")
 
-    # If multiple files, provide ZIP download at the top with custom styling
     if len(output_files) > 1:
-        # Create ZIP file for all outputs
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for file_name, df_part in output_files:
@@ -255,29 +244,27 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                 zip_file.writestr(f"{file_name}.csv", csv_data)
         zip_buffer.seek(0)
 
-        # Inject custom CSS for styling the ZIP button
         st.markdown(
             """
             <style>
             .big-button {
-                background-color: #4CAF50;  /* Green background */
+                background-color: #4CAF50;
                 color: white;
-                padding: 15px 32px;         /* Larger padding */
+                padding: 15px 32px;
                 text-align: center;
                 text-decoration: none;
                 display: inline-block;
-                font-size: 16px;            /* Larger text */
+                font-size: 16px;
                 margin: 4px 2px;
                 cursor: pointer;
                 border: none;
-                border-radius: 12px;        /* Rounded corners */
+                border-radius: 12px;
             }
             </style>
             """,
             unsafe_allow_html=True
         )
 
-        # Create the styled ZIP download button
         st.download_button(
             label="Download All Files as ZIP",
             data=zip_buffer.getvalue(),
@@ -285,10 +272,9 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             mime="application/zip",
             key="download_all_zip",
             help="Click to download all files as a ZIP",
-            type="primary"  # Enhances visibility
+            type="primary"
         )
 
-    # Always provide individual download buttons
     for file_name, df_part in output_files:
         st.download_button(
             label=f"Download {file_name}.csv",
@@ -302,8 +288,8 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     # Step 6: Display note and instructions
     st.info(
         f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned, "
-        f"and relevant data has been combined. Files are split if they exceed 2000 rows for My Maps compatibility. "
-        f"If multiple files are generated, you can download them individually or as a ZIP file."
+        f"and relevant data has been combined. Files are split for 'Address + HoNWIncome' and "
+        f"'Address + HoNWIncome & Phone' if they exceed 2000 rows. 'Split by State' creates one file per state."
     )
 
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
