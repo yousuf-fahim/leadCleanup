@@ -337,7 +337,6 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         ### Notes for Usage:
         - The output is a single Excel file (.xlsx) containing B2B job title data and related professional/company details.
         - Open in Excel or similar tools for analysis of job roles, company info, and contact details.
-        - No geographic mapping is applied, as this option focuses on B2B professional data.
         """)
 
     progress_bar.progress(6 / total_steps)
