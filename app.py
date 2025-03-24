@@ -209,7 +209,25 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                     'DNC']:
             if col in df.columns:
                 df[col] = df[col].fillna('')
-        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_Cರ
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY',
+                        'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
+                        'DNC']]
+    elif option == "Split by State":
+        output_df = df
+    elif option == "B2B Job Titles Focus":
+        b2b_job_titles_columns = [
+            'FIRST_NAME', 'LAST_NAME', 'JOB_TITLE', 'DEPARTMENT', 'SENIORITY_LEVEL', 'JOB_TITLE_LAST_UPDATED',
+            'COMPANY_INDUSTRY', 'BUSINESS_EMAIL', 'LINKEDIN_URL', 'AGE_RANGE', 'GENDER', 'SKIPTRACE_B2B_COMPANY_NAME',
+            'SKIPTRACE_B2B_MATCH_SCORE', 'SKIPTRACE_B2B_ADDRESS', 'SKIPTRACE_B2B_PHONE', 'SKIPTRACE_B2B_SOURCE',
+            'SKIPTRACE_B2B_WEBSITE', 'COMPANY_INDUSTRY2', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'COMPANY_DESCRIPTION',
+            'COMPANY_DOMAIN', 'COMPANY_EMPLOYEE_COUNT', 'COMPANY_LINKEDIN_URL', 'COMPANY_PHONE', 'COMPANY_REVENUE',
+            'COMPANY_SIC', 'COMPANY_NAICS', 'COMPANY_CITY', 'COMPANY_STATE', 'COMPANY_ZIP', 'COMPANY_LAST_UPDATED',
+            'PROFESSIONAL_ADDRESS', 'PROFESSIONAL_ADDRESS_2', 'PROFESSIONAL_CITY', 'PROFESSIONAL_STATE',
+            'PROFESSIONAL_ZIP', 'PROFESSIONAL_ZIP4', 'DNC', 'DIRECT_NUMBER', 'MOBILE_PHONE', 'PERSONAL_PHONE',
+            'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'
+        ]
+        available_columns = [col for col in b2b_job_titles_columns if col in df.columns]
+        output_df = df[available_columns]
 
     progress_bar.progress(3 / total_steps)
 
