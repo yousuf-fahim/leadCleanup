@@ -3,6 +3,7 @@ import pandas as pd
 import usaddress
 import io
 import zipfile
+from openpyxl import Workbook
 
 # Define abbreviation dictionaries
 directional_abbr = {
@@ -90,6 +91,7 @@ st.markdown(
 uploaded_file = st.file_uploader("Upload your CSV file (max 200MB)", type=["csv"], accept_multiple_files=False,
                                  help="Maximum file size: 200MB (depending on deployment environment)")
 
+# Updated options list with "B2B Job Titles Focus"
 options = [
     "Select an option",
     "Address + HoNWIncome",
@@ -97,17 +99,21 @@ options = [
     "Sha256",
     "Full Combined Address",
     "Phone & Credit Score",
-    "Split by State"
+    "Split by State",
+    "B2B Job Titles Focus"  # New option added
 ]
+
 option = st.selectbox("Select Cleaning Option", options, index=0)
 
+# Updated descriptions dictionary
 descriptions = {
     "Address + HoNWIncome": "Combines cleaned address with homeowner status, net worth, and income range.",
     "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC).",
     "Sha256": "Provides names with hashed email data, preferring personal email hash.",
     "Full Combined Address": "Generates a comprehensive dataset with full address and additional metadata.",
     "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details.",
-    "Split by State": "Splits the dataset into one file per state based on the PERSONAL_STATE column."
+    "Split by State": "Splits the dataset into one file per state based on the PERSONAL_STATE column.",
+    "B2B Job Titles Focus": "Extracts B2B job title data with company and professional details into a single .xlsx file."
 }
 
 if option != "Select an option":
@@ -136,6 +142,8 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             st.stop()
     elif option == "Split by State":
         required_cols = ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE']
+    elif option == "B2B Job Titles Focus":
+        required_cols = ['JOB_TITLE']  # Essential column for this option
 
     if not all(col in df.columns for col in required_cols):
         st.error(f"CSV file must contain the following columns: {', '.join(required_cols)}")
@@ -143,7 +151,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     progress_bar.progress(1 / total_steps)
 
-    # Step 2: Filter and clean data
+    # Step 2: Filter and clean data (only for address-related options)
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Full Combined Address",
                   "Phone & Credit Score", "Split by State"]:
         df = df[df['PERSONAL_ADDRESS'].notna()]
@@ -208,10 +216,62 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                         'DNC']]
     elif option == "Split by State":
         output_df = df  # Keep all original columns
+    elif option == "B2B Job Titles Focus":
+        # Define the exact columns requested for "B2B Job Titles Focus"
+        b2b_job_titles_columns = [
+            'FIRST_NAME',
+            'LAST_NAME',
+            'JOB_TITLE',
+            'DEPARTMENT',
+            'SENIORITY_LEVEL',
+            'JOB_TITLE_LAST_UPDATED',
+            'COMPANY_INDUSTRY',
+            'BUSINESS_EMAIL',
+            'LINKEDIN_URL',
+            'AGE_RANGE',
+            'GENDER',
+            'SKIPTRACE_B2B_COMPANY_NAME',
+            'SKIPTRACE_B2B_MATCH_SCORE',
+            'SKIPTRACE_B2B_ADDRESS',
+            'SKIPTRACE_B2B_PHONE',
+            'SKIPTRACE_B2B_SOURCE',
+            'SKIPTRACE_B2B_WEBSITE',
+            'COMPANY_INDUSTRY2',
+            'COMPANY_NAME',
+            'COMPANY_ADDRESS',
+            'COMPANY_DESCRIPTION',
+            'COMPANY_DOMAIN',
+            'COMPANY_EMPLOYEE_COUNT',
+            'COMPANY_LINKEDIN_URL',
+            'COMPANY_PHONE',
+            'COMPANY_REVENUE',
+            'COMPANY_SIC',
+            'COMPANY_NAICS',
+            'COMPANY_CITY',
+            'COMPANY_STATE',
+            'COMPANY_ZIP',
+            'COMPANY_LAST_UPDATED',
+            'PROFESSIONAL_ADDRESS',
+            'PROFESSIONAL_ADDRESS_2',
+            'PROFESSIONAL_CITY',
+            'PROFESSIONAL_STATE',
+            'PROFESSIONAL_ZIP',
+            'PROFESSIONAL_ZIP4',
+            'DNC',
+            'DIRECT_NUMBER',
+            'MOBILE_PHONE',
+            'PERSONAL_PHONE',
+            'PERSONAL_CITY',
+            'PERSONAL_STATE',
+            'PERSONAL_ZIP'
+        ]
+        # Select only available columns from the CSV
+        available_columns = [col for col in b2b_job_titles_columns if col in df.columns]
+        output_df = df[available_columns]
 
     progress_bar.progress(3 / total_steps)
 
-    # Step 4: Split files only for first two options at 2000 entries
+    # Step 4: Split files only for specific options at 2000 entries
     def split_dataframe(df, max_rows=2000):
         return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
 
@@ -228,7 +288,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             state_df = group  # Retain all columns from the original DataFrame
             output_files.append((f"output_split_by_state_{state}", state_df))  # No 2000-row split
     else:
-        # No splitting for Sha256, Full Combined Address, Phone & Credit Score
+        # No splitting for Sha256, Full Combined Address, Phone & Credit Score, or B2B Job Titles Focus
         output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
 
     progress_bar.progress(4 / total_steps)
@@ -244,27 +304,6 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                 zip_file.writestr(f"{file_name}.csv", csv_data)
         zip_buffer.seek(0)
 
-        st.markdown(
-            """
-            <style>
-            .big-button {
-                background-color: #4CAF50;
-                color: white;
-                padding: 15px 32px;
-                text-align: center;
-                text-decoration: none;
-                display: inline-block;
-                font-size: 16px;
-                margin: 4px 2px;
-                cursor: pointer;
-                border: none;
-                border-radius: 12px;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
         st.download_button(
             label="Download All Files as ZIP",
             data=zip_buffer.getvalue(),
@@ -274,22 +313,37 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             help="Click to download all files as a ZIP",
             type="primary"
         )
-
-    for file_name, df_part in output_files:
-        st.download_button(
-            label=f"Download {file_name}.csv",
-            data=df_part.to_csv(index=False).encode('utf-8'),
-            file_name=f"{file_name}.csv",
-            mime="text/csv"
-        )
+    else:
+        # Handle single file output, with special case for B2B Job Titles Focus (xlsx)
+        file_name, df_part = output_files[0]
+        if option == "B2B Job Titles Focus":
+            # Create an in-memory Excel file
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df_part.to_excel(writer, index=False, sheet_name='B2B Job Titles')
+            excel_buffer.seek(0)
+            st.download_button(
+                label="Download output_b2b_job_titles_focus.xlsx",
+                data=excel_buffer.getvalue(),
+                file_name="output_b2b_job_titles_focus.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.download_button(
+                label=f"Download {file_name}.csv",
+                data=df_part.to_csv(index=False).encode('utf-8'),
+                file_name=f"{file_name}.csv",
+                mime="text/csv"
+            )
 
     progress_bar.progress(5 / total_steps)
 
     # Step 6: Display note and instructions
     st.info(
-        f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned, "
-        f"and relevant data has been combined. Files are split for 'Address + HoNWIncome' and "
-        f"'Address + HoNWIncome & Phone' if they exceed 2000 rows. 'Split by State' creates one file per state."
+        f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned "
+        f"for address-related options, and relevant data has been combined. Files are split for 'Address + HoNWIncome' and "
+        f"'Address + HoNWIncome & Phone' if they exceed 2000 rows. 'Split by State' creates one file per state. "
+        f"'B2B Job Titles Focus' provides a single .xlsx file with B2B job-related columns."
     )
 
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
@@ -317,6 +371,13 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
            - **Placemarker Name (Title)**: Choose any relevant column (e.g., `FIRST_NAME`, `LAST_NAME`).
         6. Dismiss any locations that result in an error during import.
         7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+        """)
+    elif option == "B2B Job Titles Focus":
+        st.markdown("""
+        ### Notes for Usage:
+        - The output is a single Excel file (.xlsx) containing B2B job title data and related professional/company details.
+        - Open in Excel or similar tools for analysis of job roles, company info, and contact details.
+        - No geographic mapping is applied, as this option focuses on B2B professional data.
         """)
 
     progress_bar.progress(6 / total_steps)
