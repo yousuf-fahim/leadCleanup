@@ -209,29 +209,11 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                     'DNC']:
             if col in df.columns:
                 df[col] = df[col].fillna('')
-        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY',
-                        'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
-                        'DNC']]
-    elif option == "Split by State":
-        output_df = df
-    elif option == "B2B Job Titles Focus":
-        b2b_job_titles_columns = [
-            'FIRST_NAME', 'LAST_NAME', 'JOB_TITLE', 'DEPARTMENT', 'SENIORITY_LEVEL', 'JOB_TITLE_LAST_UPDATED',
-            'COMPANY_INDUSTRY', 'BUSINESS_EMAIL', 'LINKEDIN_URL', 'AGE_RANGE', 'GENDER', 'SKIPTRACE_B2B_COMPANY_NAME',
-            'SKIPTRACE_B2B_MATCH_SCORE', 'SKIPTRACE_B2B_ADDRESS', 'SKIPTRACE_B2B_PHONE', 'SKIPTRACE_B2B_SOURCE',
-            'SKIPTRACE_B2B_WEBSITE', 'COMPANY_INDUSTRY2', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'COMPANY_DESCRIPTION',
-            'COMPANY_DOMAIN', 'COMPANY_EMPLOYEE_COUNT', 'COMPANY_LINKEDIN_URL', 'COMPANY_PHONE', 'COMPANY_REVENUE',
-            'COMPANY_SIC', 'COMPANY_NAICS', 'COMPANY_CITY', 'COMPANY_STATE', 'COMPANY_ZIP', 'COMPANY_LAST_UPDATED',
-            'PROFESSIONAL_ADDRESS', 'PROFESSIONAL_ADDRESS_2', 'PROFESSIONAL_CITY', 'PROFESSIONAL_STATE',
-            'PROFESSIONAL_ZIP', 'PROFESSIONAL_ZIP4', 'DNC', 'DIRECT_NUMBER', 'MOBILE_PHONE', 'PERSONAL_PHONE',
-            'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'
-        ]
-        available_columns = [col for col in b2b_job_titles_columns if col in df.columns]
-        output_df = df[available_columns]
+        output_df = df[['FIRST_NAME', 'LAST_NAME', 'PHONE', 'PERSONAL_ADDRESS_CLEAN', 'PERSONAL_Cರ
 
     progress_bar.progress(3 / total_steps)
 
-    # Step 4: Split files for first two options at 2000 entries
+    # Step 4: Split files for first two options at 2000 entries or by state
     def split_dataframe(df, max_rows=2000):
         return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
 
@@ -255,16 +237,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     # Step 5: Provide download options
     st.success("✅ Processing complete!")
 
-    # For all options, display individual file downloads
-    for file_name, df_part in output_files:
-        st.download_button(
-            label=f"Download {file_name}.csv",
-            data=df_part.to_csv(index=False).encode('utf-8'),
-            file_name=f"{file_name}.csv",
-            mime="text/csv"
-        )
-
-    # Additional ZIP download for first two options and Split by State if multiple files
+    # ZIP download for options 1, 2, and Split by State if multiple files
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Split by State"] and len(output_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -282,7 +255,17 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             type="primary"
         )
 
-    # Special case for B2B Job Titles Focus (xlsx)
+    # Individual file downloads
+    for file_name, df_part in output_files:
+        if option != "B2B Job Titles Focus":  # Exclude CSV for B2B Job Titles Focus
+            st.download_button(
+                label=f"Download {file_name}.csv",
+                data=df_part.to_csv(index=False).encode('utf-8'),
+                file_name=f"{file_name}.csv",
+                mime="text/csv"
+            )
+
+    # Special case for B2B Job Titles Focus (xlsx only)
     if option == "B2B Job Titles Focus":
         file_name, df_part = output_files[0]
         excel_buffer = io.BytesIO()
