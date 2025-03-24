@@ -91,7 +91,6 @@ st.markdown(
 uploaded_file = st.file_uploader("Upload your CSV file (max 200MB)", type=["csv"], accept_multiple_files=False,
                                  help="Maximum file size: 200MB (depending on deployment environment)")
 
-# Updated options list with "B2B Job Titles Focus"
 options = [
     "Select an option",
     "Address + HoNWIncome",
@@ -100,12 +99,11 @@ options = [
     "Full Combined Address",
     "Phone & Credit Score",
     "Split by State",
-    "B2B Job Titles Focus"  # New option added
+    "B2B Job Titles Focus"
 ]
 
 option = st.selectbox("Select Cleaning Option", options, index=0)
 
-# Updated descriptions dictionary
 descriptions = {
     "Address + HoNWIncome": "Combines cleaned address with homeowner status, net worth, and income range.",
     "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC).",
@@ -143,7 +141,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     elif option == "Split by State":
         required_cols = ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE']
     elif option == "B2B Job Titles Focus":
-        required_cols = ['JOB_TITLE']  # Essential column for this option
+        required_cols = ['JOB_TITLE']
 
     if not all(col in df.columns for col in required_cols):
         st.error(f"CSV file must contain the following columns: {', '.join(required_cols)}")
@@ -215,63 +213,25 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                         'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_EMAIL', 'LINKEDIN_URL', 'SKIPTRACE_CREDIT_RATING',
                         'DNC']]
     elif option == "Split by State":
-        output_df = df  # Keep all original columns
+        output_df = df
     elif option == "B2B Job Titles Focus":
-        # Define the exact columns requested for "B2B Job Titles Focus"
         b2b_job_titles_columns = [
-            'FIRST_NAME',
-            'LAST_NAME',
-            'JOB_TITLE',
-            'DEPARTMENT',
-            'SENIORITY_LEVEL',
-            'JOB_TITLE_LAST_UPDATED',
-            'COMPANY_INDUSTRY',
-            'BUSINESS_EMAIL',
-            'LINKEDIN_URL',
-            'AGE_RANGE',
-            'GENDER',
-            'SKIPTRACE_B2B_COMPANY_NAME',
-            'SKIPTRACE_B2B_MATCH_SCORE',
-            'SKIPTRACE_B2B_ADDRESS',
-            'SKIPTRACE_B2B_PHONE',
-            'SKIPTRACE_B2B_SOURCE',
-            'SKIPTRACE_B2B_WEBSITE',
-            'COMPANY_INDUSTRY2',
-            'COMPANY_NAME',
-            'COMPANY_ADDRESS',
-            'COMPANY_DESCRIPTION',
-            'COMPANY_DOMAIN',
-            'COMPANY_EMPLOYEE_COUNT',
-            'COMPANY_LINKEDIN_URL',
-            'COMPANY_PHONE',
-            'COMPANY_REVENUE',
-            'COMPANY_SIC',
-            'COMPANY_NAICS',
-            'COMPANY_CITY',
-            'COMPANY_STATE',
-            'COMPANY_ZIP',
-            'COMPANY_LAST_UPDATED',
-            'PROFESSIONAL_ADDRESS',
-            'PROFESSIONAL_ADDRESS_2',
-            'PROFESSIONAL_CITY',
-            'PROFESSIONAL_STATE',
-            'PROFESSIONAL_ZIP',
-            'PROFESSIONAL_ZIP4',
-            'DNC',
-            'DIRECT_NUMBER',
-            'MOBILE_PHONE',
-            'PERSONAL_PHONE',
-            'PERSONAL_CITY',
-            'PERSONAL_STATE',
-            'PERSONAL_ZIP'
+            'FIRST_NAME', 'LAST_NAME', 'JOB_TITLE', 'DEPARTMENT', 'SENIORITY_LEVEL', 'JOB_TITLE_LAST_UPDATED',
+            'COMPANY_INDUSTRY', 'BUSINESS_EMAIL', 'LINKEDIN_URL', 'AGE_RANGE', 'GENDER', 'SKIPTRACE_B2B_COMPANY_NAME',
+            'SKIPTRACE_B2B_MATCH_SCORE', 'SKIPTRACE_B2B_ADDRESS', 'SKIPTRACE_B2B_PHONE', 'SKIPTRACE_B2B_SOURCE',
+            'SKIPTRACE_B2B_WEBSITE', 'COMPANY_INDUSTRY2', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'COMPANY_DESCRIPTION',
+            'COMPANY_DOMAIN', 'COMPANY_EMPLOYEE_COUNT', 'COMPANY_LINKEDIN_URL', 'COMPANY_PHONE', 'COMPANY_REVENUE',
+            'COMPANY_SIC', 'COMPANY_NAICS', 'COMPANY_CITY', 'COMPANY_STATE', 'COMPANY_ZIP', 'COMPANY_LAST_UPDATED',
+            'PROFESSIONAL_ADDRESS', 'PROFESSIONAL_ADDRESS_2', 'PROFESSIONAL_CITY', 'PROFESSIONAL_STATE',
+            'PROFESSIONAL_ZIP', 'PROFESSIONAL_ZIP4', 'DNC', 'DIRECT_NUMBER', 'MOBILE_PHONE', 'PERSONAL_PHONE',
+            'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'
         ]
-        # Select only available columns from the CSV
         available_columns = [col for col in b2b_job_titles_columns if col in df.columns]
         output_df = df[available_columns]
 
     progress_bar.progress(3 / total_steps)
 
-    # Step 4: Split files only for specific options at 2000 entries
+    # Step 4: Split files for first two options at 2000 entries
     def split_dataframe(df, max_rows=2000):
         return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
 
@@ -285,10 +245,9 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
     elif option == "Split by State":
         for state, group in output_df.groupby('PERSONAL_STATE'):
-            state_df = group  # Retain all columns from the original DataFrame
-            output_files.append((f"output_split_by_state_{state}", state_df))  # No 2000-row split
+            state_df = group
+            output_files.append((f"output_split_by_state_{state}", state_df))
     else:
-        # No splitting for Sha256, Full Combined Address, Phone & Credit Score, or B2B Job Titles Focus
         output_files.append((f"output_{option.lower().replace(' ', '_')}", output_df))
 
     progress_bar.progress(4 / total_steps)
@@ -296,54 +255,55 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     # Step 5: Provide download options
     st.success("✅ Processing complete!")
 
-    if len(output_files) > 1:
+    # For all options, display individual file downloads
+    for file_name, df_part in output_files:
+        st.download_button(
+            label=f"Download {file_name}.csv",
+            data=df_part.to_csv(index=False).encode('utf-8'),
+            file_name=f"{file_name}.csv",
+            mime="text/csv"
+        )
+
+    # Additional ZIP download for first two options and Split by State if multiple files
+    if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Split by State"] and len(output_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for file_name, df_part in output_files:
                 csv_data = df_part.to_csv(index=False).encode('utf-8')
                 zip_file.writestr(f"{file_name}.csv", csv_data)
         zip_buffer.seek(0)
-
         st.download_button(
             label="Download All Files as ZIP",
             data=zip_buffer.getvalue(),
             file_name="all_files.zip",
             mime="application/zip",
             key="download_all_zip",
-            help="Click to download all files as a ZIP",
+            help="Click to download all split files as a ZIP",
             type="primary"
         )
-    else:
-        # Handle single file output, with special case for B2B Job Titles Focus (xlsx)
+
+    # Special case for B2B Job Titles Focus (xlsx)
+    if option == "B2B Job Titles Focus":
         file_name, df_part = output_files[0]
-        if option == "B2B Job Titles Focus":
-            # Create an in-memory Excel file
-            excel_buffer = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                df_part.to_excel(writer, index=False, sheet_name='B2B Job Titles')
-            excel_buffer.seek(0)
-            st.download_button(
-                label="Download output_b2b_job_titles_focus.xlsx",
-                data=excel_buffer.getvalue(),
-                file_name="output_b2b_job_titles_focus.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.download_button(
-                label=f"Download {file_name}.csv",
-                data=df_part.to_csv(index=False).encode('utf-8'),
-                file_name=f"{file_name}.csv",
-                mime="text/csv"
-            )
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df_part.to_excel(writer, index=False, sheet_name='B2B Job Titles')
+        excel_buffer.seek(0)
+        st.download_button(
+            label="Download output_b2b_job_titles_focus.xlsx",
+            data=excel_buffer.getvalue(),
+            file_name="output_b2b_job_titles_focus.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     progress_bar.progress(5 / total_steps)
 
     # Step 6: Display note and instructions
     st.info(
         f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned "
-        f"for address-related options, and relevant data has been combined. Files are split for 'Address + HoNWIncome' and "
-        f"'Address + HoNWIncome & Phone' if they exceed 2000 rows. 'Split by State' creates one file per state. "
-        f"'B2B Job Titles Focus' provides a single .xlsx file with B2B job-related columns."
+        f"for address-related options. 'Address + HoNWIncome' and 'Address + HoNWIncome & Phone' split files "
+        f"at 2000 rows with individual downloads and a ZIP option. 'Split by State' creates one file per state "
+        f"with a ZIP if multiple states. 'B2B Job Titles Focus' outputs a single .xlsx file."
     )
 
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
@@ -352,7 +312,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         1. Go to [Google My Maps](https://www.google.com/mymaps).
         2. Click **Create a new map**.
         3. In the new map, click **Import** under the layer section.
-        4. Upload the downloaded CSV file(s).
+        4. Upload the downloaded CSV file(s) or extract from ZIP.
         5. Set the following:
            - **Placemarker Pins**: Select the `ADDRESS` column.
            - **Placemarker Name (Title)**: Select the `DATA` column.
