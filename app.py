@@ -72,17 +72,11 @@ def clean_address(address):
         if address_type == 'Street Address':
             cleaned_components = []
             for key, value in parsed.items():
-                if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional', 'StreetNamePostType', 'OccupancyType']:
-                    cleaned_value = value.rstrip(string.punctuation).upper()
-                    if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
-                        expanded = directional_abbr.get(cleaned_value, value)
-                    elif key == 'StreetNamePostType':
-                        expanded = street_type_abbr.get(cleaned_value, value)
-                    elif key == 'OccupancyType':
-                        expanded = unit_abbr.get(cleaned_value, value)
-                else:
-                    expanded = value
-                cleaned_components.append(expanded)
+                # Instead of conditionally expanding, split the value into words and expand all tokens.
+                words = value.split()
+                expanded_words = [expand_word(word) for word in words]
+                expanded_value = " ".join(expanded_words)
+                cleaned_components.append(expanded_value)
             return ' '.join(cleaned_components)
         elif address_type == 'PO Box':
             return 'PO Box ' + parsed['USPSBoxID']
@@ -94,6 +88,7 @@ def clean_address(address):
         words = address.split()
         cleaned = [expand_word(word) for word in words]
         return ' '.join(cleaned)
+
 
 # Streamlit UI and processing logic (unchanged)
 st.title("📍 Address Cleaner")
