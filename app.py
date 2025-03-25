@@ -4,6 +4,7 @@ import usaddress
 import io
 import zipfile
 from openpyxl import Workbook
+import string
 
 # Define abbreviation dictionaries with uppercase keys
 directional_abbr = {
@@ -45,7 +46,7 @@ street_type_abbr = {
     'STRM': 'Stream', 'STM': 'Stream', 'TRFY': 'Terrace', 'TRWY': 'Throughway',
     'TPKE': 'Turnpike', 'UN': 'Union', 'VLG': 'Village', 'VIS': 'Vista',
     'WAY': 'Way', 'EXPY': 'Expressway', 'FRWY': 'Freeway', 'TUNL': 'Tunnel',
-    'PLNS': 'Plains'  # Added as per your request
+    'PLNS': 'Plains'
 }
 
 unit_abbr = {
@@ -55,40 +56,46 @@ unit_abbr = {
     'HANGAR': 'Hangar', 'SLIP': 'Slip', 'PIER': 'Pier', 'DOCK': 'Dock'
 }
 
+# Helper function to expand a single word
+def expand_word(word):
+    cleaned_word = word.rstrip(string.punctuation)
+    upper_cleaned = cleaned_word.upper()
+    return directional_abbr.get(upper_cleaned,
+                               street_type_abbr.get(upper_cleaned,
+                                                    unit_abbr.get(upper_cleaned, word)))
 
+# Updated clean_address function
 def clean_address(address):
-    """Parse and expand abbreviations in an address with fallback for malformed addresses."""
+    """Parse and expand abbreviations in an address with a robust fallback."""
     try:
         parsed, address_type = usaddress.tag(address)
         if address_type == 'Street Address':
             cleaned_components = []
             for key, value in parsed.items():
-                if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
-                    cleaned_components.append(directional_abbr.get(value.upper(), value))
-                elif key == 'StreetNamePostType':
-                    cleaned_components.append(street_type_abbr.get(value.upper(), value))
-                elif key == 'OccupancyType':
-                    cleaned_components.append(unit_abbr.get(value.upper(), value))
+                if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional', 'StreetNamePostType', 'OccupancyType']:
+                    cleaned_value = value.rstrip(string.punctuation).upper()
+                    if key in ['StreetNamePreDirectional', 'StreetNamePostDirectional']:
+                        expanded = directional_abbr.get(cleaned_value, value)
+                    elif key == 'StreetNamePostType':
+                        expanded = street_type_abbr.get(cleaned_value, value)
+                    elif key == 'OccupancyType':
+                        expanded = unit_abbr.get(cleaned_value, value)
                 else:
-                    cleaned_components.append(value)
+                    expanded = value
+                cleaned_components.append(expanded)
             return ' '.join(cleaned_components)
         elif address_type == 'PO Box':
             return 'PO Box ' + parsed['USPSBoxID']
         else:
             words = address.split()
-            cleaned = [directional_abbr.get(word.upper(),
-                                            street_type_abbr.get(word.upper(), unit_abbr.get(word.upper(), word))) for
-                       word in words]
+            cleaned = [expand_word(word) for word in words]
             return ' '.join(cleaned)
     except usaddress.RepeatedLabelError:
         words = address.split()
-        cleaned = [
-            directional_abbr.get(word.upper(), street_type_abbr.get(word.upper(), unit_abbr.get(word.upper(), word)))
-            for word in words]
+        cleaned = [expand_word(word) for word in words]
         return ' '.join(cleaned)
 
-
-# Streamlit UI
+# Streamlit UI and processing logic (unchanged)
 st.title("📍 Address Cleaner")
 
 st.markdown(
@@ -158,7 +165,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     progress_bar.progress(1 / total_steps)
 
-    # Step 2: Filter and clean data (only for address-related options)
+    # Step 2: Filter and clean data
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Full Combined Address",
                   "Phone & Credit Score", "Split by State"]:
         df = df[df['PERSONAL_ADDRESS'].notna()]
@@ -168,7 +175,6 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     # Step 3: Process data based on option
     if option == "Address + HoNWIncome" or option == "Address + HoNWIncome & Phone":
-        # Build ADDRESS with available components
         address_components = ['PERSONAL_ADDRESS_CLEAN']
         if 'PERSONAL_CITY' in df.columns:
             address_components.append('PERSONAL_CITY')
@@ -182,7 +188,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
         df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
         if option == "Address + HoNWIncome":
             df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE']
-        else:  # Address + HoNWIncome & Phone
+        else:
             df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
             df['DNC'] = df['DNC'].fillna('N')
             df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE'] + \
@@ -244,11 +250,9 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     progress_bar.progress(3 / total_steps)
 
-
-    # Step 4: Split files for first two options at 2000 entries or by state
+    # Step 4: Split files
     def split_dataframe(df, max_rows=2000):
         return [df[i:i + max_rows] for i in range(0, len(df), max_rows)]
-
 
     output_files = []
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone"]:
@@ -270,7 +274,6 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
     # Step 5: Provide download options
     st.success("✅ Processing complete!")
 
-    # ZIP download for options 1, 2, and Split by State if multiple files
     if option in ["Address + HoNWIncome", "Address + HoNWIncome & Phone", "Split by State"] and len(output_files) > 1:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -288,9 +291,8 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
             type="primary"
         )
 
-    # Individual file downloads
     for file_name, df_part in output_files:
-        if option != "B2B Job Titles Focus":  # Exclude CSV for B2B Job Titles Focus
+        if option != "B2B Job Titles Focus":
             st.download_button(
                 label=f"Download {file_name}.csv",
                 data=df_part.to_csv(index=False).encode('utf-8'),
@@ -298,7 +300,6 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
                 mime="text/csv"
             )
 
-    # Special case for B2B Job Titles Focus (xlsx only)
     if option == "B2B Job Titles Focus":
         file_name, df_part = output_files[0]
         excel_buffer = io.BytesIO()
@@ -314,7 +315,7 @@ if uploaded_file and option != "Select an option" and st.button("Process"):
 
     progress_bar.progress(5 / total_steps)
 
-    # Step 6: Display note and instructions
+    # Step 6: Display instructions
     st.info(
         f"**Note:** Your file has been processed using the '{option}' option. The addresses have been cleaned "
         f"for address-related options. 'Address + HoNWIncome' and 'Address + HoNWIncome & Phone' split files "
