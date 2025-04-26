@@ -1,52 +1,119 @@
-# Address Cleaner
+# Address Cleaner Pro
 
 ## Overview
-The Address Cleaner is a Streamlit-based application that processes and standardizes addresses by expanding common abbreviations. It helps clean address data from a CSV file and outputs a refined version with standardized components.
+Address Cleaner Pro is a powerful Streamlit-based application for processing, cleaning, and standardizing contact data with robust address handling capabilities. It helps transform raw address data from CSV files into refined, standardized formats suitable for various marketing, mapping, and contact management purposes.
 
-## Features
-- Parses addresses using the `usaddress` library
-- Expands directional, street type, and unit abbreviations
-- Handles PO Box addresses
-- Processes CSV files containing personal address data
-- Provides a downloadable processed CSV file with cleaned addresses
+## Key Features
 
-## Requirements
-- Python 3.x
+### Data Processing Options
+- **Address Formatting**
+  - Address + HoNWIncome: Combines cleaned addresses with homeowner status, net worth, and income range
+  - Address + HoNWIncome & Phone: Adds phone numbers to the combined data (excluding Do Not Call numbers)
+  - Full Combined Address: Generates comprehensive datasets with complete address information
+
+- **Data Splitting**
+  - ZIP Split: Address+HoNW: Splits cleaned address and homeowner data by ZIP codes
+  - ZIP Split: Address+HoNW+Phone: Splits data including phone numbers by ZIP codes
+  - Split by State: Creates separate files for each state in your dataset
+
+- **Filtering & Selection**
+  - Filter by Zip Codes: Filters data to include only specific ZIP codes
+  - Company Industry: Filters by selected industry categories
+  - B2B Job Titles Focus: Extracts business contact information with job titles
+
+- **Utility Tools**
+  - File Combiner and Batcher: Combines multiple CSV files and splits into manageable batches
+  - Phone & Credit Score: Focuses on phone numbers and credit scores with address details
+  - Sha256: Provides names with hashed email data, preferring personal email hash
+
+### Additional Features
+- Data visualization capabilities
+- Customizable batch size for large file processing
+- Multiple output formats (CSV, Excel, JSON)
+- Address abbreviation expansion
+- Memory-efficient processing for large datasets
+- Google My Maps integration instructions
+- Phone number validation and formatting
+
+## System Requirements
+- Python 3.6+
 - Required Libraries:
   - `streamlit`
   - `pandas`
-  - `usaddress`
-  - `re`
+  - `numpy`
+  - `openpyxl` (for Excel output)
+  - `usaddress` (for address parsing)
+  - `zipfile` (for handling batch downloads)
+  - `io` (for in-memory file operations)
+  - `gc` (for memory management)
+  - `time`, `datetime` (for timing operations)
 
-You can install the dependencies using:
-```bash
-pip install streamlit pandas usaddress
-```
-
-## How to Use
-1. Run the Streamlit app:
+## Installation
+1. Clone this repository
+2. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the application:
    ```bash
    streamlit run app.py
    ```
-2. Upload a CSV file containing `PERSONAL_ADDRESS` and `PERSONAL_CITY` columns.
-3. The app will clean and process the address data.
-4. Download the processed CSV file with standardized addresses.
 
-## CSV Format
-Your input CSV should contain at least these columns:
-- `PERSONAL_ADDRESS` (e.g., "123 Main St Apt 4B")
-- `PERSONAL_CITY` (e.g., "New York")
+## CSV Format Requirements
+The application requires specific columns depending on the selected operation:
 
-The output CSV will contain:
-- `ADDRESS` (cleaned address with city)
-- `DATA` (additional combined information like homeowner status, net worth, and income range)
+- **Address Operations**: `PERSONAL_ADDRESS`, `PERSONAL_CITY`, `PERSONAL_STATE`, `PERSONAL_ZIP`
+- **Homeowner Data**: `HOMEOWNER`, `NET_WORTH`, `INCOME_RANGE`
+- **Phone Data**: `MOBILE_PHONE`, `DNC` (Do Not Call flag)
+- **B2B Operations**: `JOB_TITLE`, `COMPANY_INDUSTRY`
+- **Identity Operations**: `FIRST_NAME`, `LAST_NAME`, `SHA256_PERSONAL_EMAIL`, `SHA256_BUSINESS_EMAIL`
 
-## Sample CSV
-A sample CSV file can be downloaded [here](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing).
+## Using the Application
 
-## Acknowledgments
-This project utilizes the `usaddress` library for parsing and structuring address components.
+### Step 1: Select an Operation
+Choose from the categories and operations in the sidebar to determine how your data will be processed.
+
+### Step 2: Upload Your Data
+Upload a CSV file containing the required columns for your selected operation.
+
+### Step 3: Configure Settings
+Adjust batch size, preview options, and output format in the Settings panel.
+
+### Step 4: Process Your Data
+Click "Process Data" to start the operation. The app will validate your file, clean the data according to your selection, and provide download options.
+
+### Step 5: Download Results
+Download the processed data in your preferred format. For batch operations, you can download all files as a ZIP or select individual files.
+
+## Google My Maps Integration
+For address-related outputs:
+1. Go to [Google My Maps](https://www.google.com/mymaps)
+2. Click "Create a new map"
+3. Click "Import" under the layer section
+4. Upload your processed CSV file
+5. Set the "Placemarker Pins" to use the `ADDRESS` column
+6. Set the "Placemarker Name" to use the `DATA` column
+7. Clean up any error points or outliers manually
+
+## Memory Management
+When processing large files:
+- The application uses memory-efficient techniques for handling large datasets
+- Files are processed in chunks when necessary
+- For very large files (>100MB), consider using the ZIP Split options to break data into manageable pieces
+
+## Troubleshooting
+- **File Upload Issues**: Ensure your CSV is properly formatted with headers
+- **Address Cleaning Problems**: The cleaner works best with standardized US addresses
+- **Missing Columns**: Check the required columns for your selected operation
+- **Large File Processing**: Try increasing batch size for better performance
+
+## Version Information
+- Current Version: 2.0
+- Last Updated: April 2025
 
 ## License
 This project is licensed under the MIT License.
+
+## Support
+If you encounter issues or have questions, please report them to improve the application.
 
