@@ -21,6 +21,216 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Column mapping between old and new formats
+OLD_TO_NEW_COLUMN_MAPPING = {
+    # Core identity columns
+    'FIRST_NAME': 'FIRST_NAME',
+    'LAST_NAME': 'LAST_NAME',
+    
+    # Address columns
+    'PERSONAL_ADDRESS': 'PERSONAL_ADDRESS',
+    'PERSONAL_CITY': 'PERSONAL_CITY',
+    'PERSONAL_STATE': 'PERSONAL_STATE',
+    'PERSONAL_ZIP': 'PERSONAL_ZIP',
+    'PERSONAL_ZIP4': 'PERSONAL_ZIP4',
+    
+    # Phone columns
+    'DIRECT_NUMBER': 'DIRECT_NUMBER',
+    'MOBILE_PHONE': 'MOBILE_PHONE',
+    'PERSONAL_PHONE': 'PERSONAL_PHONE',
+    'DNC': 'DNC',
+    
+    # Demographics
+    'AGE_RANGE': 'AGE_RANGE',
+    'CHILDREN': 'CHILDREN',
+    'GENDER': 'GENDER',
+    'HOMEOWNER': 'HOMEOWNER',
+    'MARRIED': 'MARRIED',
+    'NET_WORTH': 'NET_WORTH',
+    'INCOME_RANGE': 'INCOME_RANGE',
+    
+    # Email columns
+    'BUSINESS_EMAIL': 'BUSINESS_EMAIL',
+    'PERSONAL_EMAIL': 'PERSONAL_EMAILS',  # Note: old had singular, new has plural
+    'ADDITIONAL_PERSONAL_EMAILS': 'PERSONAL_EMAILS',  # Map to same field
+    'SHA256_PERSONAL_EMAIL': 'SHA256_PERSONAL_EMAIL',
+    'SHA256_BUSINESS_EMAIL': 'SHA256_BUSINESS_EMAIL',
+    
+    # Professional columns
+    'JOB_TITLE': 'JOB_TITLE',
+    'DEPARTMENT': 'DEPARTMENT',
+    'SENIORITY_LEVEL': 'SENIORITY_LEVEL',
+    'LINKEDIN_URL': 'LINKEDIN_URL',
+    
+    # Company columns
+    'COMPANY_NAME': 'COMPANY_NAME',
+    'COMPANY_ADDRESS': 'COMPANY_ADDRESS',
+    'COMPANY_DOMAIN': 'COMPANY_DOMAIN',
+    'COMPANY_EMPLOYEE_COUNT': 'COMPANY_EMPLOYEE_COUNT',
+    'COMPANY_LINKEDIN_URL': 'COMPANY_LINKEDIN_URL',
+    'COMPANY_PHONE': 'COMPANY_PHONE',
+    'COMPANY_REVENUE': 'COMPANY_REVENUE',
+    'COMPANY_SIC': 'COMPANY_SIC',
+    'COMPANY_NAICS': 'COMPANY_NAICS',
+    'COMPANY_CITY': 'COMPANY_CITY',
+    'COMPANY_STATE': 'COMPANY_STATE',
+    'COMPANY_ZIP': 'COMPANY_ZIP',
+    'COMPANY_INDUSTRY': 'COMPANY_INDUSTRY',
+    
+    # Professional address
+    'PROFESSIONAL_ADDRESS': 'PROFESSIONAL_ADDRESS',
+    'PROFESSIONAL_ADDRESS_2': 'PROFESSIONAL_ADDRESS_2',
+    'PROFESSIONAL_CITY': 'PROFESSIONAL_CITY',
+    'PROFESSIONAL_STATE': 'PROFESSIONAL_STATE',
+    'PROFESSIONAL_ZIP': 'PROFESSIONAL_ZIP',
+    'PROFESSIONAL_ZIP4': 'PROFESSIONAL_ZIP4',
+    
+    # Skiptrace columns
+    'SKIPTRACE_CREDIT_RATING': 'SKIPTRACE_CREDIT_RATING',
+    'SKIPTRACE_DNC': 'SKIPTRACE_DNC',
+    'SKIPTRACE_EXACT_AGE': 'SKIPTRACE_EXACT_AGE',
+    'SKIPTRACE_B2B_COMPANY_NAME': 'SKIPTRACE_B2B_COMPANY_NAME',
+    'SKIPTRACE_B2B_PHONE': 'SKIPTRACE_B2B_PHONE',
+    'SKIPTRACE_B2B_SOURCE': 'SKIPTRACE_B2B_SOURCE',
+    'SKIPTRACE_B2B_WEBSITE': 'SKIPTRACE_B2B_WEBSITE'
+}
+
+# New format specific columns that don't exist in old format
+NEW_FORMAT_SPECIFIC_COLUMNS = [
+    'UUID', 'HEADLINE', 'INFERRED_YEARS_EXPERIENCE', 'COMPANY_NAME_HISTORY',
+    'JOB_TITLE_HISTORY', 'EDUCATION_HISTORY', 'COMPANY_DESCRIPTION',
+    'TWITTER_URL', 'FACEBOOK_URL', 'SOCIAL_CONNECTIONS', 'SKILLS', 'INTERESTS',
+    'SKIPTRACE_MATCH_SCORE', 'SKIPTRACE_NAME', 'SKIPTRACE_ADDRESS',
+    'SKIPTRACE_CITY', 'SKIPTRACE_STATE', 'SKIPTRACE_ZIP',
+    'SKIPTRACE_LANDLINE_NUMBERS', 'SKIPTRACE_WIRELESS_NUMBERS',
+    'SKIPTRACE_ETHNIC_CODE', 'SKIPTRACE_LANGUAGE_CODE', 'SKIPTRACE_IP',
+    'SKIPTRACE_B2B_ADDRESS', 'DEEP_VERIFIED_EMAILS'
+]
+
+def detect_input_format(df):
+    """
+    Detect whether the input file is in old or new format
+    Returns: 'old', 'new', or 'unknown'
+    """
+    # Check for new format specific columns
+    new_format_indicators = ['UUID', 'HEADLINE', 'DEEP_VERIFIED_EMAILS', 'SKILLS']
+    new_format_score = sum(1 for col in new_format_indicators if col in df.columns)
+    
+    # Check for old format specific patterns
+    old_format_indicators = ['BUSINESS_EMAIL_VALIDATION_STATUS', 'PERSONAL_EMAIL_VALIDATION_STATUS', 
+                           'SOCIAL_CONNECTIONS', 'LAST_UPDATED']
+    old_format_score = sum(1 for col in old_format_indicators if col in df.columns)
+    
+    # Additional checks for column structure differences
+    if 'PERSONAL_EMAIL' in df.columns and 'PERSONAL_EMAILS' not in df.columns:
+        old_format_score += 1
+    elif 'PERSONAL_EMAILS' in df.columns and 'PERSONAL_EMAIL' not in df.columns:
+        new_format_score += 1
+    
+    # Decision logic
+    if new_format_score > old_format_score:
+        return 'new'
+    elif old_format_score > new_format_score:
+        return 'old'
+    else:
+        # If scores are equal, check for presence of UUID (strong new format indicator)
+        if 'UUID' in df.columns:
+            return 'new'
+        else:
+            return 'old'  # Default to old format for compatibility
+
+def normalize_dataframe(df, detected_format):
+    """
+    Normalize DataFrame to a consistent internal format
+    """
+    if detected_format == 'old':
+        return normalize_old_format(df)
+    elif detected_format == 'new':
+        return normalize_new_format(df)
+    else:
+        # Unknown format - try to work with it as-is
+        return df.copy()
+
+def normalize_old_format(df):
+    """
+    Normalize old format to internal standard
+    """
+    normalized_df = df.copy()
+    
+    # Handle email columns - old format has singular PERSONAL_EMAIL
+    if 'PERSONAL_EMAIL' in normalized_df.columns and 'PERSONAL_EMAILS' not in normalized_df.columns:
+        normalized_df['PERSONAL_EMAILS'] = normalized_df['PERSONAL_EMAIL']
+    
+    # Ensure DNC column is properly formatted
+    if 'DNC' in normalized_df.columns:
+        # Convert boolean or other formats to Y/N
+        normalized_df['DNC'] = normalized_df['DNC'].apply(lambda x: 'Y' if str(x).upper() in ['Y', 'YES', 'TRUE', '1'] else 'N')
+    
+    return normalized_df
+
+def normalize_new_format(df):
+    """
+    Normalize new format to internal standard
+    """
+    normalized_df = df.copy()
+    
+    # Handle email columns - new format may have different structure
+    if 'PERSONAL_EMAILS' in normalized_df.columns and 'PERSONAL_EMAIL' not in normalized_df.columns:
+        # Extract first email from PERSONAL_EMAILS for compatibility
+        normalized_df['PERSONAL_EMAIL'] = normalized_df['PERSONAL_EMAILS'].apply(
+            lambda x: str(x).split(',')[0].strip() if pd.notna(x) and str(x) != '' else ''
+        )
+    
+    # Handle phone number columns that might have different formats
+    phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE']
+    for col in phone_cols:
+        if col in normalized_df.columns:
+            # New format might have phone numbers in different format
+            normalized_df[col] = normalized_df[col].apply(lambda x: str(x) if pd.notna(x) else '')
+    
+    # Handle DNC columns that might be formatted differently
+    if 'DNC' not in normalized_df.columns:
+        # Create DNC column if it doesn't exist
+        normalized_df['DNC'] = 'N'
+    else:
+        # Ensure proper Y/N format
+        normalized_df['DNC'] = normalized_df['DNC'].apply(lambda x: 'Y' if str(x).upper() in ['Y', 'YES', 'TRUE', '1'] else 'N')
+    
+    return normalized_df
+
+def get_format_info(df, detected_format):
+    """
+    Get information about the detected format for user display
+    """
+    info = {
+        'format': detected_format,
+        'total_columns': len(df.columns),
+        'total_rows': len(df)
+    }
+    
+    if detected_format == 'old':
+        info['description'] = "Classic address cleaner format"
+        info['key_features'] = [
+            "Standard address and contact fields",
+            "Single personal email column",
+            "Traditional column structure"
+        ]
+    elif detected_format == 'new':
+        info['description'] = "Enhanced format with additional data"
+        info['key_features'] = [
+            "UUID for unique identification",
+            "Enhanced social and professional data",
+            "Deep verified emails",
+            "Skills and interests data"
+        ]
+    else:
+        info['description'] = "Unknown or custom format"
+        info['key_features'] = [
+            "Will attempt to process with available columns"
+        ]
+    
+    return info
+
 # Add CSS for responsive design - optimized
 st.markdown("""
 <style>
@@ -114,6 +324,29 @@ div[data-testid="stHorizontalBlock"] div[data-testid="column"] div[role="tabpane
 .tooltip:hover .tooltiptext {
     visibility: visible;
     opacity: 1;
+}
+
+/* Format indicator styling */
+.format-indicator {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+}
+.format-old {
+    background-color: #E3F2FD;
+    border-left-color: #2196F3;
+    color: #1565C0;
+}
+.format-new {
+    background-color: #E8F5E9;
+    border-left-color: #4CAF50;
+    color: #2E7D32;
+}
+.format-unknown {
+    background-color: #FFF3E0;
+    border-left-color: #FF9800;
+    color: #F57C00;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -491,6 +724,8 @@ def main():
         "Address Formatting": [
             "Address + HoNWIncome",
             "Address + HoNWIncome & Phone",
+            "Address + HoNWIncome First Name Last Name", 
+            "Business Address + First Name Last Name",
             "Full Combined Address"
         ],
         "Data Splitting": [
@@ -506,8 +741,10 @@ def main():
         "Utility Tools": [
             "File Combiner and Batcher",
             "Phone & Credit Score",
+            "Duplicate Analysis & Frequency Counter",
             "Sha256",
-            "Complete Contact Export"
+            "Complete Contact Export",
+            "DNC Phone Number Cleaner"
         ]
     }
     
@@ -596,17 +833,21 @@ def main():
         descriptions = {
             "Address + HoNWIncome": "Combines cleaned address with homeowner status, net worth, and income range. Includes state if available.",
             "Address + HoNWIncome & Phone": "Adds phone number to the combined data if not marked as Do Not Call (DNC). Includes state if available.",
+            "Address + HoNWIncome First Name Last Name": "Combines cleaned address with homeowner status, net worth, income range, and includes first and last names for identification.",
+            "Business Address + First Name Last Name": "Processes business/company addresses with cleaning and includes first and last names. Uses company address fields for business locations.",
             "ZIP Split: Address+HoNW": "Splits the cleaned address and homeowner data into separate files based on ZIP codes.",
             "ZIP Split: Address+HoNW+Phone": "Splits the cleaned address, homeowner data, and phone numbers into separate files based on ZIP codes.",
             "File Combiner and Batcher": "Combines multiple uploaded CSV files and splits the result into customizable-sized batches.",
             "Sha256": "Provides names with hashed email data, preferring personal email hash.",
             "Full Combined Address": "Generates a comprehensive dataset with full address and additional metadata.",
             "Phone & Credit Score": "Focuses on phone numbers and credit scores with address details.",
+            "Duplicate Analysis & Frequency Counter": "Counts how many times each record appears, adds frequency count as first column, removes duplicates, and sorts by frequency. Useful for identifying most common records in your dataset.",
             "Split by State": "Splits the dataset into one file per state based on the PERSONAL_STATE column.",
             "B2B Job Titles Focus": "Extracts B2B job title data with company and professional details into a single file.",
             "Filter by Zip Codes": "Filters the data to include only rows where the first 5 digits of PERSONAL_ZIP match the provided 5-digit zip codes.",
             "Company Industry": "Filters data by unique industries from the COMPANY_INDUSTRY column, allowing multi-selection for efficient filtering.",
-            "Complete Contact Export": "Processes and cleans the entire contact file, formatting phone numbers and addresses while preserving all original data. Maintains the original structure for compatibility with other systems."
+            "Complete Contact Export": "Processes and cleans the entire contact file, formatting phone numbers and addresses while preserving all original data. Maintains the original structure for compatibility with other systems.",
+            "DNC Phone Number Cleaner": "Removes phone numbers from rows where the DNC column is marked 'Y' but keeps them when marked 'N'."
         }
 
         if option != "Select an option":
@@ -616,8 +857,18 @@ def main():
             if option == "File Combiner and Batcher":
                 # Multiple file upload for combiner
                 uploaded_files = st.file_uploader("Upload multiple CSV files", type=["csv"], accept_multiple_files=True)
-                batch_size = st.number_input("Batch size (rows)", min_value=100, max_value=10000, 
-                                            value=st.session_state['user_preferences']['batch_size'], step=100)
+                
+                # Add checkbox for enabling/disabling automatic batching
+                enable_batching = st.checkbox(
+                    "Enable automatic batching", 
+                    value=True,
+                    help="When enabled, the combined file will be split into batches if it exceeds the batch size. When disabled, all files will be merged into a single file regardless of size."
+                )
+                
+                # Only show batch size input if batching is enabled
+                if enable_batching:
+                    batch_size = st.number_input("Batch size (rows)", min_value=100, max_value=10000, 
+                                                value=st.session_state['user_preferences']['batch_size'], step=100)
                 
                 if uploaded_files and st.button("Combine and Batch Files"):
                     with st.spinner("Combining files..."):
@@ -627,9 +878,19 @@ def main():
                         # Show progress for each file
                         progress_bar = st.progress(0)
                         
+                        # Track formats found
+                        formats_detected = []
+                        
                         for i, file in enumerate(uploaded_files):
                             try:
                                 temp_df = pd.read_csv(file)
+                                
+                                # Detect and normalize format for each file
+                                detected_format = detect_input_format(temp_df)
+                                temp_df = normalize_dataframe(temp_df, detected_format)
+                                
+                                formats_detected.append(detected_format)
+                                
                                 combined_df = pd.concat([combined_df, temp_df], ignore_index=True)
                                 progress_bar.progress((i + 1) / len(uploaded_files))
                             except Exception as e:
@@ -638,6 +899,18 @@ def main():
                         if combined_df.empty:
                             st.error("No data found in the uploaded files.")
                         else:
+                            # Show format summary
+                            format_counts = {fmt: formats_detected.count(fmt) for fmt in set(formats_detected)}
+                            format_summary = []
+                            for fmt, count in format_counts.items():
+                                if fmt == 'old':
+                                    format_summary.append(f"🔵 {count} Classic format files")
+                                elif fmt == 'new':
+                                    format_summary.append(f"🟢 {count} Enhanced format files")
+                                else:
+                                    format_summary.append(f"🟡 {count} Unknown format files")
+                            
+                            st.info(f"📁 Combined files: {', '.join(format_summary)}")
                             st.success(f"✅ Combined {len(uploaded_files)} files with {len(combined_df):,} total rows")
                             
                             # Show preview of combined data
@@ -645,8 +918,8 @@ def main():
                                 show_data_preview(combined_df, option, 
                                                 max_rows=st.session_state['user_preferences']['max_preview_rows'])
                             
-                            # Determine if batching is needed
-                            needs_batching = len(combined_df) > batch_size
+                            # Determine if batching is needed based on checkbox
+                            needs_batching = enable_batching and len(combined_df) > batch_size if enable_batching else False
                             
                             if needs_batching:
                                 # Split into batches
@@ -678,6 +951,11 @@ def main():
                                             )
                             else:
                                 # Single file download
+                                if enable_batching:
+                                    st.info(f"ℹ️ File contains {len(combined_df):,} rows which is below the batch size of {batch_size:,} rows. No batching needed.")
+                                else:
+                                    st.info("ℹ️ Automatic batching is disabled. All files merged into a single file.")
+                                
                                 output_format = st.radio("Output format:", 
                                                        ("CSV", "Excel", "JSON"), 
                                                        horizontal=True)
@@ -707,847 +985,1004 @@ def main():
                         height=100,
                         help="Example: 90210 60601 10001"
                     )
+                
+                # Company Industry specific inputs
+                elif option == "Company Industry":
+                    # Handle Company Industry option separately
+                    if uploaded_file:
+                        # Read and process the file for Company Industry filtering
+                        try:
+                            df = pd.read_csv(uploaded_file)
+                            
+                            # Detect and normalize format
+                            detected_format = detect_input_format(df)
+                            df = normalize_dataframe(df, detected_format)
+                            
+                            # Display format information
+                            if detected_format == 'old':
+                                format_class = "format-old"
+                                format_emoji = "🔵"
+                            elif detected_format == 'new':
+                                format_class = "format-new"
+                                format_emoji = "🟢"
+                            else:
+                                format_class = "format-unknown"
+                                format_emoji = "🟡"
+                            
+                            st.markdown(f"""
+                            <div class="format-indicator {format_class}">
+                                {format_emoji} <strong>Format Detected:</strong> {detected_format.title()} format<br>
+                                <small>📊 {len(df):,} rows, {len(df.columns):,} columns</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Check for COMPANY_INDUSTRY column
+                            if 'COMPANY_INDUSTRY' not in df.columns:
+                                st.error("CSV file must contain 'COMPANY_INDUSTRY' column for industry filtering.")
+                            else:
+                                # Get unique industries
+                                unique_industries = df['COMPANY_INDUSTRY'].dropna().unique()
+                                unique_industries = [industry for industry in unique_industries if str(industry).strip() != '']
+                                
+                                if len(unique_industries) == 0:
+                                    st.warning("No valid industries found in the COMPANY_INDUSTRY column.")
+                                else:
+                                    st.write(f"Found {len(unique_industries)} unique industries in your data:")
+                                    
+                                    # Multi-select for industries
+                                    selected_industries = st.multiselect(
+                                        "Select industries to include in the filtered data:",
+                                        options=sorted(unique_industries),
+                                        default=None,
+                                        help="Select one or more industries to filter your data"
+                                    )
+                                    
+                                    # Show industry distribution
+                                    with st.expander("Industry Distribution"):
+                                        industry_counts = df['COMPANY_INDUSTRY'].value_counts()
+                                        st.dataframe(pd.DataFrame({
+                                            'Industry': industry_counts.index,
+                                            'Count': industry_counts.values
+                                        }), use_container_width=True)
+                                    
+                                    # Process the filtering
+                                    if selected_industries and st.button("Filter by Selected Industries"):
+                                        with st.spinner("Filtering data by selected industries..."):
+                                            # Filter the data
+                                            filtered_df = df[df['COMPANY_INDUSTRY'].isin(selected_industries)]
+                                            
+                                            st.success(f"✅ Filtering complete! Found {len(filtered_df):,} rows matching selected industries")
+                                            st.write(f"Filter matched {len(filtered_df) / len(df) * 100:.1f}% of original data")
+                                            
+                                            # Show breakdown by selected industries
+                                            filtered_industry_counts = filtered_df['COMPANY_INDUSTRY'].value_counts()
+                                            st.write("**Records by Selected Industry:**")
+                                            st.dataframe(pd.DataFrame({
+                                                'Industry': filtered_industry_counts.index,
+                                                'Count': filtered_industry_counts.values
+                                            }), use_container_width=True)
+                                            
+                                            # Show preview if enabled
+                                            if st.session_state['user_preferences']['show_preview']:
+                                                show_data_preview(filtered_df, option, 
+                                                                max_rows=st.session_state['user_preferences']['max_preview_rows'])
+                                            
+                                            # Provide download options
+                                            output_format = st.radio("Output format:", 
+                                                                   ("CSV", "Excel", "JSON"), 
+                                                                   horizontal=True)
+                                            
+                                            create_download_button(
+                                                filtered_df,
+                                                "filtered_by_industry",
+                                                output_format.lower(),
+                                                f"Download {len(filtered_df):,} records filtered by industry"
+                                            )
+                                    
+                                    elif not selected_industries:
+                                        st.info("Please select at least one industry to filter the data.")
+                        
+                        except Exception as e:
+                            st.error(f"Error processing file: {str(e)}")
                     
-                # Process button for all other options
-                if uploaded_file and option != "Company Industry":
-                    if st.button("Process Data"):
-                        with st.spinner("Processing file..."):
-                            # Read the uploaded file
-                            try:
-                                df = pd.read_csv(uploaded_file)
-                                st.success(f"File loaded with {len(df):,} rows and {len(df.columns):,} columns")
+                # Process button for all other options (excluding Company Industry which is handled above)
+                if uploaded_file and option not in ["Company Industry"]:
+                    # Initialize session state for main processing if not exists
+                    if 'main_processing' not in st.session_state:
+                        st.session_state['main_processing'] = {
+                            'processed': False,
+                            'current_option': None,
+                            'df': None,
+                            'format_info': None
+                        }
+                    
+                    # Check if option changed
+                    if st.session_state['main_processing']['current_option'] != option:
+                        st.session_state['main_processing']['processed'] = False
+                        st.session_state['main_processing']['current_option'] = option
+                        st.session_state['main_processing']['df'] = None
+                        st.session_state['main_processing']['format_info'] = None
+                    
+                    # Process Data button
+                    process_clicked = st.button("Process Data", key="main_process_btn")
+                    
+                    # Processing logic
+                    if process_clicked or st.session_state['main_processing']['processed']:
+                        if process_clicked:
+                            st.session_state['main_processing']['processed'] = False
+                        
+                        if not st.session_state['main_processing']['processed']:
+                            with st.spinner("Processing file..."):
+                                # Read the uploaded file
+                                try:
+                                    df = pd.read_csv(uploaded_file)
+                                    
+                                    # Detect input format
+                                    detected_format = detect_input_format(df)
+                                    format_info = get_format_info(df, detected_format)
+                                    
+                                    # Display format information
+                                    if detected_format == 'old':
+                                        format_class = "format-old"
+                                        format_emoji = "🔵"
+                                    elif detected_format == 'new':
+                                        format_class = "format-new"
+                                        format_emoji = "🟢"
+                                    else:
+                                        format_class = "format-unknown"
+                                        format_emoji = "🟡"
+                                    
+                                    st.markdown(f"""
+                                    <div class="format-indicator {format_class}">
+                                        {format_emoji} <strong>Format Detected:</strong> {format_info['description']}<br>
+                                        <small>📊 {format_info['total_rows']:,} rows, {format_info['total_columns']:,} columns</small>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Normalize the DataFrame
+                                    df = normalize_dataframe(df, detected_format)
+                                    
+                                    st.success(f"File loaded and normalized with {len(df):,} rows and {len(df.columns):,} columns")
+                                    
+                                    # Store the normalized data in session state for visualization
+                                    st.session_state['processed_data'] = df.copy()
+                                    
+                                    # Store processing results in session state
+                                    st.session_state['main_processing']['df'] = df
+                                    st.session_state['main_processing']['format_info'] = format_info
+                                    st.session_state['main_processing']['processed'] = True
+                                    
+                                except Exception as e:
+                                    st.error(f"Error reading file: {str(e)}")
+                                    st.stop()
+                        
+                        # Use stored data from session state
+                        if st.session_state['main_processing']['df'] is not None:
+                            df = st.session_state['main_processing']['df']
+                            format_info = st.session_state['main_processing']['format_info']
+                            
+                            # Show format-specific features
+                            with st.expander("Format Details"):
+                                st.write("**Key Features:**")
+                                for feature in format_info['key_features']:
+                                    st.write(f"• {feature}")
                                 
-                                # Show preview if enabled
-                                if st.session_state['user_preferences']['show_preview']:
-                                    show_data_preview(df, option, 
-                                                    max_rows=st.session_state['user_preferences']['max_preview_rows'])
-                                
+                                if format_info['format'] == 'new':
+                                    new_cols_present = [col for col in NEW_FORMAT_SPECIFIC_COLUMNS if col in df.columns]
+                                    if new_cols_present:
+                                        st.write("**Enhanced columns available:**")
+                                        st.write(", ".join(new_cols_present))
+                            
+                            # Show preview if enabled
+                            if st.session_state['user_preferences']['show_preview']:
+                                show_data_preview(df, option, 
+                                                max_rows=st.session_state['user_preferences']['max_preview_rows'])
+                            
 
-                                # Validate required columns based on option
-                                if option == "Filter by Zip Codes":
-                                    valid, msg = validate_columns(df, ['PERSONAL_ZIP'], option)
-                                elif option == "Address + HoNWIncome":
-                                    valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY'], option)
-                                elif option == "Address + HoNWIncome & Phone":
-                                    valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'MOBILE_PHONE', 'DNC'], option)
-                                elif option == "Sha256":
-                                    valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'SHA256_PERSONAL_EMAIL', 'SHA256_BUSINESS_EMAIL'], option)
-                                elif option == "Full Combined Address":
-                                    valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
-                                elif option == "Phone & Credit Score":
-                                    valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
-                                    # Special check for phone number columns
-                                    if valid and 'MOBILE_PHONE' not in df.columns and 'DIRECT_NUMBER' not in df.columns:
-                                        valid = False
-                                        msg = "CSV file must contain at least one of 'MOBILE_PHONE' or 'DIRECT_NUMBER'."
+                            # Validate required columns based on option
+                            if option == "Filter by Zip Codes":
+                                valid, msg = validate_columns(df, ['PERSONAL_ZIP'], option)
+                            elif option == "Address + HoNWIncome":
+                                valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY'], option)
+                            elif option == "Address + HoNWIncome & Phone":
+                                valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'MOBILE_PHONE'], option)
+                                # Note: DNC column is now created during normalization if missing
+                            elif option == "Address + HoNWIncome First Name Last Name":
+                                valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY'], option)
+                            elif option == "Business Address + First Name Last Name":
+                                # Check for business address columns - prefer COMPANY_ADDRESS, fall back to PROFESSIONAL_ADDRESS
+                                if 'COMPANY_ADDRESS' in df.columns:
+                                    valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'COMPANY_ADDRESS'], option)
+                                elif 'PROFESSIONAL_ADDRESS' in df.columns:
+                                    valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PROFESSIONAL_ADDRESS'], option)
+                                else:
+                                    valid = False
+                                    msg = "CSV file must contain either 'COMPANY_ADDRESS' or 'PROFESSIONAL_ADDRESS' for business address processing."
+                            elif option == "Sha256":
+                                # For SHA256, check for either format's email columns
+                                required_cols = ['FIRST_NAME', 'LAST_NAME']
+                                email_cols = ['SHA256_PERSONAL_EMAIL', 'SHA256_BUSINESS_EMAIL']
+                                valid, msg = validate_columns(df, required_cols, option)
+                                if valid and not any(col in df.columns for col in email_cols):
+                                    valid = False
+                                    msg = f"CSV file must contain at least one of: {', '.join(email_cols)}"
+                            elif option == "Full Combined Address":
+                                valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
+                            elif option == "Phone & Credit Score":
+                                valid, msg = validate_columns(df, ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
+                                # Special check for phone number columns
+                                if valid and 'MOBILE_PHONE' not in df.columns and 'DIRECT_NUMBER' not in df.columns:
+                                    valid = False
+                                    msg = "CSV file must contain at least one of 'MOBILE_PHONE' or 'DIRECT_NUMBER'."
+                            elif option == "Duplicate Analysis & Frequency Counter":
+                                # No specific column requirements - can work with any CSV data
+                                valid = True
+                                msg = ""
+                            elif option == "Split by State":
+                                valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE'], option)
+                            elif option == "B2B Job Titles Focus":
+                                valid, msg = validate_columns(df, ['JOB_TITLE'], option)
+                            elif option in ["ZIP Split: Address+HoNW", "ZIP Split: Address+HoNW+Phone"]:
+                                valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
+                            elif option == "Complete Contact Export":
+                                # No specific column requirements for complete export - accepts any valid CSV
+                                valid = True
+                                msg = ""
+                            elif option == "DNC Phone Number Cleaner":
+                                # Check for DNC columns
+                                dnc_cols = [col for col in df.columns if 'DNC' in col.upper()]
+                                if not dnc_cols:
+                                    valid = False
+                                    msg = "CSV file must contain at least one column with 'DNC' in the name."
+                                else:
+                                    valid = True
+                                    msg = ""
+                            else:
+                                valid = True
+                                msg = ""
+                            
+
+                            if not valid:
+                                st.error(msg)
+                            else:
+                                # Process data based on selected option
+                                processing_container = st.container()
+                                progress_bar = st.progress(0)
+                                processing_text = st.empty()
+                                
+                                # Set up tracking for timed progress updates
+                                start_time = time.time()
+                                total_steps = 6  # Adjust based on processing steps
+                                
+                                # Process based on option (continuing with original logic structure, but improved)
+                                # This is where we'll implement the option-specific processing
+                                
+                                # SHA256 OPTION
+                                if option == "Sha256":
+                                    processing_text.text("Processing SHA256 email data...")
+                                    
+                                    # Create output DataFrame with names and email hashes
+                                    output_df = df[['FIRST_NAME', 'LAST_NAME']].copy()
+                                    
+                                    # Handle email hash preference - prefer personal over business
+                                    if 'SHA256_PERSONAL_EMAIL' in df.columns and 'SHA256_BUSINESS_EMAIL' in df.columns:
+                                        # Use personal email hash if available, otherwise business email hash
+                                        output_df['EMAIL_HASH'] = df['SHA256_PERSONAL_EMAIL'].fillna(df['SHA256_BUSINESS_EMAIL'])
+                                    elif 'SHA256_PERSONAL_EMAIL' in df.columns:
+                                        output_df['EMAIL_HASH'] = df['SHA256_PERSONAL_EMAIL']
+                                    elif 'SHA256_BUSINESS_EMAIL' in df.columns:
+                                        output_df['EMAIL_HASH'] = df['SHA256_BUSINESS_EMAIL']
+                                    else:
+                                        st.error("No SHA256 email columns found.")
+                                    
+                                    # Remove rows where email hash is empty
+                                    output_df = output_df[output_df['EMAIL_HASH'].notna() & (output_df['EMAIL_HASH'] != '')]
+                                    
+                                    progress_bar.progress(0.6)
+                                    
+                                    st.success(f"✅ Processing complete! Generated {len(output_df):,} rows with email hashes")
+                                    
+                                    # Show hash statistics
+                                    if 'SHA256_PERSONAL_EMAIL' in df.columns and 'SHA256_BUSINESS_EMAIL' in df.columns:
+                                        personal_hashes = sum(df['SHA256_PERSONAL_EMAIL'].notna() & (df['SHA256_PERSONAL_EMAIL'] != ''))
+                                        business_hashes = sum(df['SHA256_BUSINESS_EMAIL'].notna() & (df['SHA256_BUSINESS_EMAIL'] != ''))
+                                        st.write(f"**Personal email hashes:** {personal_hashes:,}")
+                                        st.write(f"**Business email hashes:** {business_hashes:,}")
+                                    
+                                    # Provide download options
+                                    output_format = st.radio("Output format:", 
+                                                           ("CSV", "Excel", "JSON"), 
+                                                           horizontal=True)
+                                    
+                                    create_download_button(
+                                        output_df,
+                                        "sha256_emails",
+                                        output_format.lower(),
+                                        f"Download {len(output_df):,} records with email hashes"
+                                    )
+                                    
+                                    progress_bar.progress(1.0)
+                                
+                                # SPLIT BY STATE
                                 elif option == "Split by State":
-                                    valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE'], option)
-                                elif option == "B2B Job Titles Focus":
-                                    valid, msg = validate_columns(df, ['JOB_TITLE'], option)
-                                elif option in ["ZIP Split: Address+HoNW", "ZIP Split: Address+HoNW+Phone"]:
-                                    valid, msg = validate_columns(df, ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP'], option)
-                                elif option == "Complete Contact Export":
-                                    # No specific column requirements for complete export - accepts any valid CSV
-                                    valid = True
-                                    msg = ""
-                                else:
-                                    valid = True
-                                    msg = ""
+                                    processing_text.text("Processing state-based split...")
+                                    
+                                    # Clean addresses if requested
+                                    if st.session_state['user_preferences']['auto_clean_addresses']:
+                                        df = df[df['PERSONAL_ADDRESS'].notna()]
+                                        df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                        progress_bar.progress(0.2)
+                                    
+                                    # Group by state
+                                    state_groups = []
+                                    state_file_names = []
+                                    
+                                    processing_text.text("Creating separate files for each state...")
+                                    
+                                    for state, group in df.groupby('PERSONAL_STATE'):
+                                        if pd.notna(state) and state.strip() != '':
+                                            state_groups.append(group)
+                                            state_file_names.append(f"state_{state.strip()}")
+                                    
+                                    progress_bar.progress(0.8)
+                                    
+                                    # Show results
+                                    st.success(f"✅ Processing complete! Split data into {len(state_groups)} state groups")
+                                    
+                                    # Create a summary of the states
+                                    state_summary = pd.DataFrame({
+                                        'State': df['PERSONAL_STATE'].value_counts().index,
+                                        'Record Count': df['PERSONAL_STATE'].value_counts().values
+                                    })
+                                    
+                                    st.write("**State Distribution:**")
+                                    st.dataframe(state_summary, use_container_width=True)
+                                    
+                                    # Provide download options
+                                    output_format = st.radio("Output format:", 
+                                                           ("CSV", "Excel", "JSON"), 
+                                                           horizontal=True)
+                                    
+                                    # ZIP download for all files
+                                    create_zip_download(state_groups, state_file_names, output_format.lower())
+                                    
+                                    # Option to download individual state files
+                                    with st.expander("Download individual state files"):
+                                        # Create a multiselect to choose which states to download
+                                        selected_states = st.multiselect(
+                                            "Select states to download individually:",
+                                            options=df['PERSONAL_STATE'].value_counts().index.tolist(),
+                                            default=None,
+                                            help="Select states to download as individual files"
+                                        )
+                                        
+                                        if selected_states:
+                                            state_cols = st.columns(3)  # 3 columns for download buttons
+                                            for i, state in enumerate(selected_states):
+                                                with state_cols[i % 3]:
+                                                    state_df = df[df['PERSONAL_STATE'] == state]
+                                                    
+                                                    create_download_button(
+                                                        state_df,
+                                                        f"state_{state}",
+                                                        output_format.lower(),
+                                                        f"Download {state} ({len(state_df):,} records)"
+                                                    )
+                                    
+                                    progress_bar.progress(1.0)
                                 
+                                # B2B JOB TITLES FOCUS
+                                elif option == "B2B Job Titles Focus":
+                                    processing_text.text("Processing B2B job title data...")
+                                    
+                                    # Filter for rows with job titles
+                                    b2b_df = df[df['JOB_TITLE'].notna() & (df['JOB_TITLE'] != '')].copy()
+                                    
+                                    # Select relevant B2B columns
+                                    b2b_columns = ['FIRST_NAME', 'LAST_NAME', 'JOB_TITLE', 'COMPANY_NAME', 'COMPANY_INDUSTRY']
+                                    
+                                    # Add optional columns if they exist
+                                    optional_columns = ['DEPARTMENT', 'SENIORITY_LEVEL', 'LINKEDIN_URL', 'BUSINESS_EMAIL', 
+                                                      'COMPANY_DOMAIN', 'COMPANY_PHONE', 'COMPANY_ADDRESS']
+                                    
+                                    for col in optional_columns:
+                                        if col in b2b_df.columns:
+                                            b2b_columns.append(col)
+                                    
+                                    # Create output with available columns
+                                    available_columns = [col for col in b2b_columns if col in b2b_df.columns]
+                                    output_df = b2b_df[available_columns].copy()
+                                    
+                                    progress_bar.progress(0.6)
+                                    
+                                    st.success(f"✅ Processing complete! Extracted {len(output_df):,} B2B records")
+                                    
+                                    # Show job title statistics
+                                    top_titles = output_df['JOB_TITLE'].value_counts().head(10)
+                                    st.write("**Top 10 Job Titles:**")
+                                    st.dataframe(pd.DataFrame({
+                                        'Job Title': top_titles.index,
+                                        'Count': top_titles.values
+                                    }), use_container_width=True)
+                                    
+                                    if 'COMPANY_INDUSTRY' in output_df.columns:
+                                        top_industries = output_df['COMPANY_INDUSTRY'].value_counts().head(10)
+                                        st.write("**Top 10 Industries:**")
+                                        st.dataframe(pd.DataFrame({
+                                            'Industry': top_industries.index,
+                                            'Count': top_industries.values
+                                        }), use_container_width=True)
+                                    
+                                    # Provide download options
+                                    output_format = st.radio("Output format:", 
+                                                           ("CSV", "Excel", "JSON"), 
+                                                           horizontal=True)
+                                    
+                                    create_download_button(
+                                        output_df,
+                                        "b2b_job_titles",
+                                        output_format.lower(),
+                                        f"Download {len(output_df):,} B2B records"
+                                    )
+                                    
+                                    progress_bar.progress(1.0)
+                                
+                                # FILTER BY ZIP CODES
+                                elif option == "Filter by Zip Codes":
+                                    if zip_codes_input:
+                                        processing_text.text("Filtering by zip codes...")
+                                        
+                                        # Ensure PERSONAL_ZIP is string to preserve leading zeros
+                                        df['PERSONAL_ZIP'] = df['PERSONAL_ZIP'].astype(str)
+                                        
+                                        # Create temporary column with first 5 digits, stripping spaces
+                                        df['PERSONAL_ZIP_5'] = df['PERSONAL_ZIP'].fillna('').astype(str).str.strip().str[:5]
+                                        
+                                        # Parse input zip codes
+                                        zip_codes = [str(zip_code).strip()[:5] for zip_code in 
+                                                    zip_codes_input.replace(",", " ").split() 
+                                                    if str(zip_code).strip()]
+                                        
+                                        progress_bar.progress(0.3)
+                                        
+                                        if not zip_codes:
+                                            st.error("No valid zip codes provided.")
+                                        else:
+                                            # Filter the DataFrame
+                                            filtered_df = df[df['PERSONAL_ZIP_5'].isin(zip_codes)]
+                                            filtered_df = filtered_df.drop(columns=['PERSONAL_ZIP_5'])
+                                            
+                                            progress_bar.progress(0.6)
+                                            
+                                            # Show filter results
+                                            st.write(f"Found {len(filtered_df):,} rows matching the zip codes")
+                                            st.write(f"Filter matched {len(filtered_df) / len(df) * 100:.1f}% of original data")
+                                            
+                                            # Debug info for zip code matching
+                                            with st.expander("Filter Details"):
+                                                st.write("**Zip Codes Used for Filtering:**", ", ".join(zip_codes))
+                                                st.write("**Unique PERSONAL_ZIP (first 5 digits) in Data:**", 
+                                                        ", ".join(sorted(df['PERSONAL_ZIP_5'].unique().tolist())[:25]) + 
+                                                        ("..." if len(df['PERSONAL_ZIP_5'].unique()) > 25 else ""))
+                                            
 
-                                if not valid:
-                                    st.error(msg)
-                                else:
-                                    # Process data based on selected option
-                                    processing_container = st.container()
-                                    progress_bar = st.progress(0)
-                                    processing_text = st.empty()
-                                    
-                                    # Set up tracking for timed progress updates
-                                    start_time = time.time()
-                                    total_steps = 6  # Adjust based on processing steps
-                                    
-                                    # Process based on option (continuing with original logic structure, but improved)
-                                    # This is where we'll implement the option-specific processing
-                                    
-                                    # FILTER BY ZIP CODES
-                                    if option == "Filter by Zip Codes":
-                                        if zip_codes_input:
-                                            processing_text.text("Filtering by zip codes...")
-                                            
-                                            # Ensure PERSONAL_ZIP is string to preserve leading zeros
-                                            df['PERSONAL_ZIP'] = df['PERSONAL_ZIP'].astype(str)
-                                            
-                                            # Create temporary column with first 5 digits, stripping spaces
-                                            df['PERSONAL_ZIP_5'] = df['PERSONAL_ZIP'].str.strip().str[:5]
-                                            
-                                            # Parse input zip codes
-                                            zip_codes = [str(zip_code).strip()[:5] for zip_code in 
-                                                        zip_codes_input.replace(",", " ").split() 
-                                                        if str(zip_code).strip()]
-                                            
-                                            progress_bar.progress(0.3)
-                                            
-                                            if not zip_codes:
-                                                st.error("No valid zip codes provided.")
+                                            # Provide download options if we have results
+                                            if not filtered_df.empty:
+                                                output_format = st.radio("Output format:", 
+                                                                      ("CSV", "Excel", "JSON"), 
+                                                                      horizontal=True)
+                                                
+                                                create_download_button(
+                                                    filtered_df, 
+                                                    "filtered_by_zip_codes", 
+                                                    output_format.lower(),
+                                                    f"Download {len(filtered_df):,} filtered records"
+                                                )
+                                                
+                                                st.success("✅ Filtering complete!")
                                             else:
-                                                # Filter the DataFrame
-                                                filtered_df = df[df['PERSONAL_ZIP_5'].isin(zip_codes)]
-                                                filtered_df = filtered_df.drop(columns=['PERSONAL_ZIP_5'])
+                                                st.warning("No rows match the provided zip codes. Please check your input.")
+                                        
+                                        progress_bar.progress(1.0)
+                                    else:
+                                        st.error("Please enter zip codes to filter.")
+                                
+                                # ZIP SPLIT: ADDRESS+HONW
+                                elif option == "ZIP Split: Address+HoNW":
+                                    processing_text.text("Processing addresses and preparing ZIP code split...")
+                                    
+                                    # Clean the data
+                                    if st.session_state['user_preferences']['auto_clean_addresses']:
+                                        df = df[df['PERSONAL_ADDRESS'].notna()]
+                                        df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                        progress_bar.progress(0.2)
+                                    
+                                    # Create the address field
+                                    df['ADDRESS'] = df[['PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY', 'PERSONAL_STATE']].apply(
+                                        lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
+                                    )
+                                    
+                                    # Handle missing values
+                                    df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
+                                    df['NET_WORTH'] = df['NET_WORTH'].fillna('')
+                                    df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
+                                    
+                                    # Create the data field
+                                    df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE']
+                                    
+                                    progress_bar.progress(0.4)
+                                    
+                                    # Filter by ZIP codes if specified
+                                    if 'zip_filter_input' in locals() and zip_filter_input.strip():
+                                        zip_codes = [z.strip() for z in zip_filter_input.replace(",", " ").split() if z.strip()]
+                                        df['PERSONAL_ZIP'] = df['PERSONAL_ZIP'].fillna('').astype(str).str.strip()
+                                        df = df[df['PERSONAL_ZIP'].str[:5].isin(zip_codes)]
+                                        processing_text.text(f"Filtered to {len(df):,} rows matching the specified ZIP codes")
+                                    
+                                    progress_bar.progress(0.6)
+                                    
+                                    # Group by ZIP code
+                                    zip_groups = []
+                                    zip_file_names = []
+                                    
+                                    processing_text.text("Creating separate files for each ZIP code...")
+                                    
+                                    # Group the data by ZIP code
+                                    for zip_code, group in df.groupby('PERSONAL_ZIP'):
+                                        # Only include address and data in output
+                                        output_group = group[['ADDRESS', 'DATA']]
+                                        zip_groups.append(output_group)
+                                        zip_file_names.append(f"zip_{zip_code}")
+                                    
+                                    progress_bar.progress(0.8)
+                                    
+                                    # Show results
+                                    st.success(f"✅ Processing complete! Split data into {len(zip_groups)} ZIP code groups")
+                                    
+                                    # Create a summary of the ZIP codes
+                                    zip_summary = pd.DataFrame({
+                                        'ZIP Code': df['PERSONAL_ZIP'].unique(),
+                                        'Record Count': [len(df[df['PERSONAL_ZIP'] == z]) for z in df['PERSONAL_ZIP'].unique()]
+                                    }).sort_values('Record Count', ascending=False)
+                                    
+                                    st.write("**ZIP Code Distribution:**")
+                                    st.dataframe(zip_summary, use_container_width=True)
+                                    
+                                    # Provide download options
+                                    output_format = st.radio("Output format:", 
+                                                           ("CSV", "Excel", "JSON"), 
+                                                           horizontal=True)
+                                    
+                                    # ZIP download for all files
+                                    create_zip_download(zip_groups, zip_file_names, output_format.lower())
+                                    
+                                    # Option to download individual ZIP files
+                                    with st.expander("Download individual ZIP files"):
+                                        # Create a multiselect to choose which ZIP codes to download
+                                        selected_zips = st.multiselect(
+                                            "Select ZIP codes to download individually:",
+                                            options=df['PERSONAL_ZIP'].unique(),
+                                            default=None,
+                                            help="Select ZIP codes to download as individual files"
+                                        )
+                                        
+                                        if selected_zips:
+                                            # Filter to only the selected ZIP codes
+                                            selected_indices = [i for i, zip_code in enumerate(df['PERSONAL_ZIP'].unique()) 
+                                                                  if zip_code in selected_zips]
+                                            
+
+                                            zip_cols = st.columns(3)  # 3 columns for download buttons
+                                            for i, idx in enumerate(selected_indices):
+                                                with zip_cols[i % 3]:
+                                                    zip_code = df['PERSONAL_ZIP'].unique()[idx]
+                                                    group_df = df[df['PERSONAL_ZIP'] == zip_code][['ADDRESS', 'DATA']]
+                                                    
+                                                    create_download_button(
+                                                        group_df,
+                                                        f"zip_{zip_code}",
+                                                        output_format.lower(),
+                                                        f"Download ZIP {zip_code} ({len(group_df):,} records)"
+                                                    )
+                                                
+                                        progress_bar.progress(1.0)
+                                
+                                # ZIP SPLIT: ADDRESS+HONW+PHONE
+                                elif option == "ZIP Split: Address+HoNW+Phone":
+                                    processing_text.text("Processing addresses with phone data and preparing ZIP code split...")
+                                    
+                                    # Clean the data
+                                    if st.session_state['user_preferences']['auto_clean_addresses']:
+                                        df = df[df['PERSONAL_ADDRESS'].notna()]
+                                        df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                        progress_bar.progress(0.2)
+                                    
+                                    # Create the address field
+                                    df['ADDRESS'] = df[['PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY', 'PERSONAL_STATE']].apply(
+                                        lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
+                                    )
+                                    
+                                    # Handle missing values
+                                    df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
+                                    df['DNC'] = df['DNC'].fillna('N')
+                                    df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
+                                    df['NET_WORTH'] = df['NET_WORTH'].fillna('')
+                                    df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
+                                    
+                                    # Format phone numbers if needed
+                                    if st.session_state['user_preferences'].get('format_phone_numbers', True):
+                                        df['MOBILE_PHONE'] = df['MOBILE_PHONE'].apply(validate_phone)
+                                    
+                                    # Create the data field with phone numbers for non-DNC records
+                                    df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE'] + \
+                                            df.apply(lambda row: ' | Phone ' + str(row['MOBILE_PHONE']) if (
+                                                    row['DNC'] != 'Y' and row['MOBILE_PHONE'] != '') else '', axis=1)
+                                    
+                                    # Final output
+                                    output_df = df[['ADDRESS', 'DATA']]
+                                    
+                                    progress_bar.progress(0.6)
+                                    
+                                    # Check if we need to split the output
+                                    batch_size = st.session_state['user_preferences']['batch_size']
+                                    if len(output_df) > batch_size:
+                                        processing_text.text(f"Splitting output into batches (max {batch_size:,} rows per file)...")
+                                        
+                                        # Split the DataFrame
+                                        output_batches = split_dataframe(output_df, batch_size)
+                                        batch_names = [f"address_honwincome_phone_part_{i+1}" for i in range(len(output_batches))]
+                                        
+                                        st.success(f"✅ Processing complete! Split into {len(output_batches)} batches")
+                                        
+                                        # Add stats about phone numbers
+                                        total_phones = len(df[df['MOBILE_PHONE'] != ''])
+                                        callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
+                                        
+                                        st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
+                                        st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        # ZIP download for all batches
+                                        create_zip_download(output_batches, batch_names, output_format.lower())
+                                        
+                                        # Individual batch downloads
+                                        with st.expander("Download individual batches"):
+                                            batch_cols = st.columns(3)  # 3 columns for batch downloads
+                                            for i, (batch_name, batch_df) in enumerate(zip(batch_names, output_batches)):
+                                                with batch_cols[i % 3]:  # Alternate between columns
+                                                    create_download_button(
+                                                        batch_df,
+                                                        batch_name,
+                                                        output_format.lower(),
+                                                        f"Download batch {i+1} with {len(batch_df):,} rows"
+                                                    )
+                                    else:
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows")
+                                        
+                                        # Add stats about phone numbers
+                                        total_phones = len(df[df['MOBILE_PHONE'] != ''])
+                                        callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
+                                        
+                                        st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
+                                        st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        # Single file download
+                                        create_download_button(
+                                            output_df,
+                                            "address_honwincome_phone",
+                                            output_format.lower(),
+                                            f"Download processed data with {len(output_df):,} rows"
+                                        )
+                                        
+                                    # Add Google My Maps instructions
+                                    with st.expander("How to Import into Google My Maps"):
+                                        st.markdown("""
+                                        ### How to Import into Google My Maps:
+                                        1. Go to [Google My Maps](https://www.google.com/mymaps).
+                                        2. Click **Create a new map**.
+                                        3. In the new map, click **Import** under the layer section.
+                                        4. Upload the downloaded CSV file(s) or extract from ZIP.
+                                        5. Set the following:
+                                           - **Placemarker Pins**: Select the `ADDRESS` column.
+                                           - **Placemarker Name (Title)**: Select the `DATA` column.
+                                        6. Dismiss any locations that result in an error during import.
+                                        7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+                                        """)
+                                    
+                                    progress_bar.progress(1.0)
+                                
+                                # DNC PHONE NUMBER CLEANER (SIMPLIFIED)
+                                elif option == "DNC Phone Number Cleaner":
+                                    processing_text.text("Processing DNC phone number cleaning...")
+                                    
+                                    # Make a copy to avoid modifying the original
+                                    output_df = df.copy()
+                                    
+                                    # Find all potential DNC columns
+                                    potential_dnc_cols = [col for col in output_df.columns if 'DNC' in col.upper()]
+                                    
+                                    if not potential_dnc_cols:
+                                        st.error("No DNC columns found in the dataset. Please ensure your data contains columns with 'DNC' in the name.")
+                                    else:
+                                        # Configuration Section
+                                        st.subheader("DNC Column Selection")
+                                        
+                                        # Set default to 'DIRECT_DNC' if available, otherwise first DNC column
+                                        default_index = 0
+                                        if 'DIRECT_DNC' in potential_dnc_cols:
+                                            default_index = potential_dnc_cols.index('DIRECT_DNC')
+                                        
+                                        selected_dnc_col = st.selectbox(
+                                            "Select DNC column to process:",
+                                            options=potential_dnc_cols,
+                                            index=default_index,
+                                            help="Choose which DNC column to use for phone number cleaning"
+                                        )
+                                        
+                                        # Show DNC column preview
+                                        with st.expander("Preview DNC Column Data"):
+                                            dnc_sample = output_df[selected_dnc_col].fillna('MISSING').head(20)
+                                            st.write("**Sample values from selected DNC column:**")
+                                            for i, val in enumerate(dnc_sample):
+                                                st.write(f"Row {i+1}: `{val}`")
+                                        
+                                        # Process button
+                                        if st.button("Process DNC Cleaning", key="dnc_process_btn"):
+                                            with st.spinner("Processing DNC phone number cleaning..."):
+                                                progress_bar.progress(0.2)
+                                                
+                                                # Identify all phone number columns available in the data
+                                                all_phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE', 'COMPANY_PHONE', 'SKIPTRACE_B2B_PHONE']
+                                                available_phone_cols = [col for col in all_phone_cols if col in output_df.columns]
+                                                
+                                                processing_text.text("Removing phone numbers where DNC = 'Y'...")
+                                                progress_bar.progress(0.4)
+                                                
+                                                # Count original phone numbers
+                                                original_phones = {}
+                                                for col in available_phone_cols:
+                                                    original_phones[col] = sum(output_df[col].notna() & (output_df[col] != ''))
+                                                
+                                                # Clean and prepare DNC column
+                                                output_df[selected_dnc_col] = output_df[selected_dnc_col].fillna('N').astype(str).str.strip()
+                                                
+                                                # Enhanced logic: Handle both simple and complex DNC patterns
+                                                # Simple: 'Y' -> remove all phone numbers
+                                                # Complex: 'Y, N, Y' with '+1234, +5678, +9012' -> remove +5678 only
                                                 
                                                 progress_bar.progress(0.6)
                                                 
-                                                # Show filter results
-                                                st.write(f"Found {len(filtered_df):,} rows matching the zip codes")
-                                                st.write(f"Filter matched {len(filtered_df) / len(df) * 100:.1f}% of original data")
+                                                # Track rows that had phone numbers removed due to DNC 'Y'
+                                                rows_with_dnc_y = set()
                                                 
-                                                # Debug info for zip code matching
-                                                with st.expander("Filter Details"):
-                                                    st.write("**Zip Codes Used for Filtering:**", ", ".join(zip_codes))
-                                                    st.write("**Unique PERSONAL_ZIP (first 5 digits) in Data:**", 
-                                                            ", ".join(sorted(df['PERSONAL_ZIP_5'].unique().tolist())[:25]) + 
-                                                            ("..." if len(df['PERSONAL_ZIP_5'].unique()) > 25 else ""))
-                                                
-
-                                                # Provide download options if we have results
-                                                if not filtered_df.empty:
-                                                    output_format = st.radio("Output format:", 
-                                                                          ("CSV", "Excel", "JSON"), 
-                                                                          horizontal=True)
+                                                # Process each row individually to handle complex patterns
+                                                for idx, row in output_df.iterrows():
+                                                    dnc_value = str(row[selected_dnc_col]).upper().strip()
                                                     
-                                                    create_download_button(
-                                                        filtered_df, 
-                                                        "filtered_by_zip_codes", 
-                                                        output_format.lower(),
-                                                        f"Download {len(filtered_df):,} filtered records"
-                                                    )
+                                                    if not dnc_value or dnc_value in ['', 'NAN', 'NONE']:
+                                                        continue
                                                     
-                                                    st.success("✅ Filtering complete!")
-                                                else:
-                                                    st.warning("No rows match the provided zip codes. Please check your input.")
-                                            
-
-                                            progress_bar.progress(1.0)
-                                        else:
-                                            st.error("Please enter zip codes to filter.")
-                                    
-                                    # ZIP SPLIT: ADDRESS+HONW
-                                    elif option == "ZIP Split: Address+HoNW":
-                                        processing_text.text("Processing addresses and preparing ZIP code split...")
-                                        
-                                        # Clean the data
-                                        if st.session_state['user_preferences']['auto_clean_addresses']:
-                                            df = df[df['PERSONAL_ADDRESS'].notna()]
-                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
-                                            progress_bar.progress(0.2)
-                                        
-                                        # Create the address field
-                                        df['ADDRESS'] = df[['PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY', 'PERSONAL_STATE']].apply(
-                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
-                                        )
-                                        
-                                        # Handle missing values
-                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
-                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('')
-                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
-                                        
-                                        # Create the data field
-                                        df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE']
-                                        
-                                        progress_bar.progress(0.4)
-                                        
-                                        # Filter by ZIP codes if specified
-                                        if 'zip_filter_input' in locals() and zip_filter_input.strip():
-                                            zip_codes = [z.strip() for z in zip_filter_input.replace(",", " ").split() if z.strip()]
-                                            df['PERSONAL_ZIP'] = df['PERSONAL_ZIP'].astype(str).str.strip()
-                                            df = df[df['PERSONAL_ZIP'].str[:5].isin(zip_codes)]
-                                            processing_text.text(f"Filtered to {len(df):,} rows matching the specified ZIP codes")
-                                        
-                                        progress_bar.progress(0.6)
-                                        
-                                        # Group by ZIP code
-                                        zip_groups = []
-                                        zip_file_names = []
-                                        
-                                        processing_text.text("Creating separate files for each ZIP code...")
-                                        
-                                        # Group the data by ZIP code
-                                        for zip_code, group in df.groupby('PERSONAL_ZIP'):
-                                            # Only include address and data in output
-                                            output_group = group[['ADDRESS', 'DATA']]
-                                            zip_groups.append(output_group)
-                                            zip_file_names.append(f"zip_{zip_code}")
-                                        
-                                        progress_bar.progress(0.8)
-                                        
-                                        # Show results
-                                        st.success(f"✅ Processing complete! Split data into {len(zip_groups)} ZIP code groups")
-                                        
-                                        # Create a summary of the ZIP codes
-                                        zip_summary = pd.DataFrame({
-                                            'ZIP Code': df['PERSONAL_ZIP'].unique(),
-                                            'Record Count': [len(df[df['PERSONAL_ZIP'] == z]) for z in df['PERSONAL_ZIP'].unique()]
-                                        }).sort_values('Record Count', ascending=False)
-                                        
-                                        st.write("**ZIP Code Distribution:**")
-                                        st.dataframe(zip_summary, use_container_width=True)
-                                        
-                                        # Provide download options
-                                        output_format = st.radio("Output format:", 
-                                                               ("CSV", "Excel", "JSON"), 
-                                                               horizontal=True)
-                                        
-                                        # ZIP download for all files
-                                        create_zip_download(zip_groups, zip_file_names, output_format.lower())
-                                        
-                                        # Option to download individual ZIP files
-                                        with st.expander("Download individual ZIP files"):
-                                            # Create a multiselect to choose which ZIP codes to download
-                                            selected_zips = st.multiselect(
-                                                "Select ZIP codes to download individually:",
-                                                options=df['PERSONAL_ZIP'].unique(),
-                                                default=None,
-                                                help="Select ZIP codes to download as individual files"
-                                            )
-                                            
-                                            if selected_zips:
-                                                # Filter to only the selected ZIP codes
-                                                selected_indices = [i for i, zip_code in enumerate(df['PERSONAL_ZIP'].unique()) 
-                                                                  if zip_code in selected_zips]
-                                                
-
-                                                zip_cols = st.columns(3)  # 3 columns for download buttons
-                                                for i, idx in enumerate(selected_indices):
-                                                    with zip_cols[i % 3]:
-                                                        zip_code = df['PERSONAL_ZIP'].unique()[idx]
-                                                        group_df = df[df['PERSONAL_ZIP'] == zip_code][['ADDRESS', 'DATA']]
+                                                    # Process each phone column for this row
+                                                    for phone_col in available_phone_cols:
+                                                        if phone_col not in output_df.columns:
+                                                            continue
+                                                            
+                                                        phone_value = str(row[phone_col]) if pd.notna(row[phone_col]) else ''
                                                         
-                                                        create_download_button(
-                                                            group_df,
-                                                            f"zip_{zip_code}",
-                                                            output_format.lower(),
-                                                            f"Download ZIP {zip_code} ({len(group_df):,} records)"
-                                                        )
-                                                    
-                                        progress_bar.progress(1.0)
-                                    
-                                    # ZIP SPLIT: ADDRESS+HONW+PHONE
-                                    elif option == "ZIP Split: Address+HoNW+Phone":
-                                        processing_text.text("Processing addresses with phone data and preparing ZIP code split...")
-                                        
-                                        # Clean the data
-                                        if st.session_state['user_preferences']['auto_clean_addresses']:
-                                            df = df[df['PERSONAL_ADDRESS'].notna()]
-                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
-                                            progress_bar.progress(0.2)
-                                        
-                                        # Create the address field
-                                        df['ADDRESS'] = df[['PERSONAL_ADDRESS_CLEAN', 'PERSONAL_CITY', 'PERSONAL_STATE']].apply(
-                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
-                                        )
-                                        
-                                        # Handle missing values
-                                        df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
-                                        df['DNC'] = df['DNC'].fillna('N')
-                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
-                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('')
-                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
-                                        
-                                        # Format phone numbers if needed
-                                        if st.session_state['user_preferences'].get('format_phone_numbers', True):
-                                            df['MOBILE_PHONE'] = df['MOBILE_PHONE'].apply(validate_phone)
-                                        
-                                        # Create the data field with phone numbers for non-DNC records
-                                        df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE'] + \
-                                                df.apply(lambda row: ' | Phone ' + str(row['MOBILE_PHONE']) if (
-                                                        row['DNC'] != 'Y' and row['MOBILE_PHONE'] != '') else '', axis=1)
-                                        
-                                        # Final output
-                                        output_df = df[['ADDRESS', 'DATA']]
-                                        
-                                        progress_bar.progress(0.6)
-                                        
-                                        # Check if we need to split the output
-                                        batch_size = st.session_state['user_preferences']['batch_size']
-                                        if len(output_df) > batch_size:
-                                            processing_text.text(f"Splitting output into batches (max {batch_size:,} rows per file)...")
-                                            
-                                            # Split the DataFrame
-                                            output_batches = split_dataframe(output_df, batch_size)
-                                            batch_names = [f"address_honwincome_phone_part_{i+1}" for i in range(len(output_batches))]
-                                            
-                                            st.success(f"✅ Processing complete! Split into {len(output_batches)} batches")
-                                            
-                                            # Add stats about phone numbers
-                                            total_phones = len(df[df['MOBILE_PHONE'] != ''])
-                                            callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
-                                            
-                                            st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
-                                            st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                            
-                                            # ZIP download for all batches
-                                            create_zip_download(output_batches, batch_names, output_format.lower())
-                                            
-                                            # Individual batch downloads
-                                            with st.expander("Download individual batches"):
-                                                batch_cols = st.columns(3)  # 3 columns for batch downloads
-                                                for i, (batch_name, batch_df) in enumerate(zip(batch_names, output_batches)):
-                                                    with batch_cols[i % 3]:  # Alternate between columns
-                                                        create_download_button(
-                                                            batch_df,
-                                                            batch_name,
-                                                            output_format.lower(),
-                                                            f"Download batch {i+1} with {len(batch_df):,} rows"
-                                                        )
-                                        else:
-                                            st.success(f"✅ Processing complete! Generated {len(output_df):,} rows")
-                                            
-                                            # Add stats about phone numbers
-                                            total_phones = len(df[df['MOBILE_PHONE'] != ''])
-                                            callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
-                                            
-                                            st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
-                                            st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                            
-                                            # Single file download
-                                            create_download_button(
-                                                output_df,
-                                                "address_honwincome_phone",
-                                                output_format.lower(),
-                                                f"Download processed data with {len(output_df):,} rows"
-                                            )
-                                            
-                                        # Add Google My Maps instructions
-                                        with st.expander("How to Import into Google My Maps"):
-                                            st.markdown("""
-                                            ### How to Import into Google My Maps:
-                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
-                                            2. Click **Create a new map**.
-                                            3. In the new map, click **Import** under the layer section.
-                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
-                                            5. Set the following:
-                                               - **Placemarker Pins**: Select the `ADDRESS` column.
-                                               - **Placemarker Name (Title)**: Select the `DATA` column.
-                                            6. Dismiss any locations that result in an error during import.
-                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
-                                            """)
-                                        
-                                        progress_bar.progress(1.0)
-                                    
-                                    # ADDRESS + HONWINCOME
-                                    elif option == "Address + HoNWIncome":
-                                        processing_text.text("Processing addresses with homeowner, net worth, and income data...")
-                                        
-                                        # Clean the data
-                                        if st.session_state['user_preferences']['auto_clean_addresses']:
-                                            df = df[df['PERSONAL_ADDRESS'].notna()]
-                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
-                                            progress_bar.progress(0.2)
-                                        
-                                        # Create the address components
-                                        address_components = ['PERSONAL_ADDRESS_CLEAN']
-                                        if 'PERSONAL_CITY' in df.columns:
-                                            address_components.append('PERSONAL_CITY')
-                                        if 'PERSONAL_STATE' in df.columns:
-                                            address_components.append('PERSONAL_STATE')
-                                        
-                                        # Create the address field
-                                        df['ADDRESS'] = df[address_components].apply(
-                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
-                                        )
-                                        
-                                        # Handle missing values
-                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
-                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('')
-                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
-                                        
-                                        # Create the data field
-                                        df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE']
-                                        
-                                        # Final output
-                                        output_df = df[['ADDRESS', 'DATA']]
-                                        
-                                        progress_bar.progress(0.6)
-                                        
-                                        # Check if we need to split the output
-                                        batch_size = st.session_state['user_preferences']['batch_size']
-                                        if len(output_df) > batch_size:
-                                            processing_text.text(f"Splitting output into batches (max {batch_size:,} rows per file)...")
-                                            
-                                            # Split the DataFrame
-                                            output_batches = split_dataframe(output_df, batch_size)
-                                            batch_names = [f"address_honwincome_part_{i+1}" for i in range(len(output_batches))]
-                                            
-                                            st.success(f"✅ Processing complete! Split into {len(output_batches)} batches")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                        
-                                            # ZIP download for all batches
-                                            create_zip_download(output_batches, batch_names, output_format.lower())
-                                            
-                                            # Individual batch downloads
-                                            with st.expander("Download individual batches"):
-                                                batch_cols = st.columns(3)  # 3 columns for batch downloads
-                                                for i, (batch_name, batch_df) in enumerate(zip(batch_names, output_batches)):
-                                                    with batch_cols[i % 3]:  # Alternate between columns
-                                                        create_download_button(
-                                                            batch_df,
-                                                            batch_name,
-                                                            output_format.lower(),
-                                                            f"Download batch {i+1} with {len(batch_df):,} rows"
-                                                        )
-                                        else:
-                                            st.success(f"✅ Processing complete! Generated {len(output_df):,} rows")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                        
-                                            # Single file download
-                                            create_download_button(
-                                                output_df,
-                                                "address_honwincome",
-                                                output_format.lower(),
-                                                f"Download processed data with {len(output_df):,} rows"
-                                            )
-                                            
-                                        # Add Google My Maps instructions
-                                        with st.expander("How to Import into Google My Maps"):
-                                            st.markdown("""
-                                            ### How to Import into Google My Maps:
-                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
-                                            2. Click **Create a new map**.
-                                            3. In the new map, click **Import** under the layer section.
-                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
-                                            5. Set the following:
-                                               - **Placemarker Pins**: Select the `ADDRESS` column.
-                                               - **Placemarker Name (Title)**: Select the `DATA` column.
-                                            6. Dismiss any locations that result in an error during import.
-                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
-                                            """)
-                                        
-                                        progress_bar.progress(1.0)
-                                    
-                                    # ADDRESS + HONWINCOME & PHONE
-                                    elif option == "Address + HoNWIncome & Phone":
-                                        processing_text.text("Processing addresses with homeowner, net worth, income, and phone data...")
-                                        
-                                        # Clean the data
-                                        if st.session_state['user_preferences']['auto_clean_addresses']:
-                                            df = df[df['PERSONAL_ADDRESS'].notna()]
-                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
-                                            progress_bar.progress(0.2)
-                                        
-                                        # Create the address components
-                                        address_components = ['PERSONAL_ADDRESS_CLEAN']
-                                        if 'PERSONAL_CITY' in df.columns:
-                                            address_components.append('PERSONAL_CITY')
-                                        if 'PERSONAL_STATE' in df.columns:
-                                            address_components.append('PERSONAL_STATE')
-                                        
-                                        # Create the address field
-                                        df['ADDRESS'] = df[address_components].apply(
-                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
-                                        )
-                                        
-                                        # Handle missing values
-                                        df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
-                                        df['DNC'] = df['DNC'].fillna('N')
-                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('')
-                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('')
-                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('')
-                                        
-                                        # Format phone numbers if needed
-                                        if st.session_state['user_preferences'].get('format_phone_numbers', True):
-                                            df['MOBILE_PHONE'] = df['MOBILE_PHONE'].apply(validate_phone)
-                                        
-                                        # Create the data field with phone numbers for non-DNC records
-                                        df['DATA'] = 'Ho ' + df['HOMEOWNER'] + ' | NW ' + df['NET_WORTH'] + ' | Income ' + df['INCOME_RANGE'] + \
-                                                df.apply(lambda row: ' | Phone ' + str(row['MOBILE_PHONE']) if (
-                                                        row['DNC'] != 'Y' and row['MOBILE_PHONE'] != '') else '', axis=1)
-                                        
-                                        # Final output
-                                        output_df = df[['ADDRESS', 'DATA']]
-                                        
-                                        progress_bar.progress(0.6)
-                                        
-                                        # Check if we need to split the output
-                                        batch_size = st.session_state['user_preferences']['batch_size']
-                                        if len(output_df) > batch_size:
-                                            processing_text.text(f"Splitting output into batches (max {batch_size:,} rows per file)...")
-                                            
-                                            # Split the DataFrame
-                                            output_batches = split_dataframe(output_df, batch_size)
-                                            batch_names = [f"address_honwincome_phone_part_{i+1}" for i in range(len(output_batches))]
-                                            
-                                            st.success(f"✅ Processing complete! Split into {len(output_batches)} batches")
-                                            
-                                            # Add stats about phone numbers
-                                            total_phones = len(df[df['MOBILE_PHONE'] != ''])
-                                            callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
-                                            
-                                            st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
-                                            st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                            
-                                            # ZIP download for all batches
-                                            create_zip_download(output_batches, batch_names, output_format.lower())
-                                            
-                                            # Individual batch downloads
-                                            with st.expander("Download individual batches"):
-                                                batch_cols = st.columns(3)  # 3 columns for batch downloads
-                                                for i, (batch_name, batch_df) in enumerate(zip(batch_names, output_batches)):
-                                                    with batch_cols[i % 3]:  # Alternate between columns
-                                                        create_download_button(
-                                                            batch_df,
-                                                            batch_name,
-                                                            output_format.lower(),
-                                                            f"Download batch {i+1} with {len(batch_df):,} rows"
-                                                        )
-                                        else:
-                                            st.success(f"✅ Processing complete! Generated {len(output_df):,} rows")
-                                            
-                                            # Add stats about phone numbers
-                                            total_phones = len(df[df['MOBILE_PHONE'] != ''])
-                                            callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
-                                            
-                                            st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
-                                            st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
-                                            
-                                            # Provide download options
-                                            output_format = st.radio("Output format:", 
-                                                                   ("CSV", "Excel", "JSON"), 
-                                                                   horizontal=True)
-                                            
-                                            # Single file download
-                                            create_download_button(
-                                                output_df,
-                                                "address_honwincome_phone",
-                                                output_format.lower(),
-                                                f"Download processed data with {len(output_df):,} rows"
-                                            )
-                                            
-                                        # Add Google My Maps instructions
-                                        with st.expander("How to Import into Google My Maps"):
-                                            st.markdown("""
-                                            ### How to Import into Google My Maps:
-                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
-                                            2. Click **Create a new map**.
-                                            3. In the new map, click **Import** under the layer section.
-                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
-                                            5. Set the following:
-                                               - **Placemarker Pins**: Select the `ADDRESS` column.
-                                               - **Placemarker Name (Title)**: Select the `DATA` column.
-                                            6. Dismiss any locations that result in an error during import.
-                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
-                                            """)
-                                        
-                                        progress_bar.progress(1.0)
-                                    
-                                    # COMPLETE CONTACT EXPORT
-                                    elif option == "Complete Contact Export":
-                                        processing_text.text("Processing complete contact export...")
-                                        
-                                        # Make a copy to avoid modifying the original
-                                        output_df = df.copy()
-                                        
-                                        # Check file size for memory optimization
-                                        is_large_file = len(output_df) > 100000
-                                        if is_large_file:
-                                            st.info(f"📊 Large file detected ({len(output_df):,} rows). Using optimized processing to improve performance.")
-                                            # Try to free memory
-                                            clean_memory()
-                                        
-                                        # Define the expected columns in the correct order
-                                        expected_columns = [
-                                            'FIRST_NAME', 'LAST_NAME', 'DNC', 'MOBILE_PHONE', 'DIRECT_NUMBER', 
-                                            'PERSONAL_PHONE', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 
-                                            'PERSONAL_ZIP', 'AGE_RANGE', 'CHILDREN', 'GENDER', 'HOMEOWNER', 
-                                            'MARRIED', 'NET_WORTH', 'INCOME_RANGE', 'PERSONAL_EMAIL', 
-                                            'ADDITIONAL_PERSONAL_EMAILS', 'SKIPTRACE_B2B_PHONE', 
-                                            'SKIPTRACE_B2B_SOURCE', 'SKIPTRACE_B2B_WEBSITE',
-                                            'SKIPTRACE_B2B_COMPANY_NAME', 'JOB_TITLE', 'DEPARTMENT', 
-                                            'SENIORITY_LEVEL', 'JOB_TITLE_LAST_UPDATED', 'LINKEDIN_URL', 
-                                            'BUSINESS_EMAIL', 'COMPANY_NAME', 'COMPANY_ADDRESS', 
-                                            'COMPANY_DOMAIN', 'COMPANY_EMPLOYEE_COUNT', 'COMPANY_LINKEDIN_URL', 
-                                            'COMPANY_PHONE', 'COMPANY_REVENUE', 'COMPANY_SIC', 'COMPANY_NAICS', 
-                                            'COMPANY_CITY', 'COMPANY_STATE', 'COMPANY_ZIP', 'COMPANY_INDUSTRY',
-                                            'PROFESSIONAL_ADDRESS', 'PROFESSIONAL_ADDRESS_2', 'PROFESSIONAL_CITY', 
-                                            'PROFESSIONAL_STATE', 'PROFESSIONAL_ZIP', 'PROFESSIONAL_ZIP4'
-                                        ]
-                                        
-                                        # Enhanced error handling for missing critical columns
-                                        if not any(col in output_df.columns for col in ['FIRST_NAME', 'LAST_NAME']):
-                                            st.warning("⚠️ Input file appears to be missing essential name columns. Output may not be as expected.")
-                                        
-                                        # Create a new DataFrame with only the expected columns that exist in the input
-                                        # and in the expected order
-                                        columns_to_keep = [col for col in expected_columns if col in output_df.columns]
-                                        filtered_df = output_df[columns_to_keep].copy()
-                                        
-                                        # Add column reorganization preview
-                                        with st.expander("Column Reorganization Preview"):
-                                            col1, col2 = st.columns(2)
-                                            with col1:
-                                                st.write("**Original Columns**")
-                                                original_cols = pd.DataFrame({"Original": output_df.columns.tolist()})
-                                                st.dataframe(original_cols, height=300)
-                                            with col2:
-                                                st.write("**Exported Columns (Rearranged)**")
-                                                new_cols = pd.DataFrame({"Exported": filtered_df.columns.tolist()})
-                                                st.dataframe(new_cols, height=300)
+                                                        if not phone_value or phone_value in ['', 'nan', 'None']:
+                                                            continue
+                                                        
+                                                        # Check if this is a simple 'Y' case
+                                                        if dnc_value in ['Y', 'YES', 'TRUE', '1']:
+                                                            output_df.at[idx, phone_col] = ''
+                                                            rows_with_dnc_y.add(idx)
+                                                        
+                                                        # Check if this is a complex comma-separated case
+                                                        elif ',' in dnc_value:
+                                                            # Handle complex patterns like phone: "+1234, +5678" dnc: "N, Y"
+                                                            if ',' in phone_value:
+                                                                phone_list = [p.strip() for p in phone_value.split(',') if p.strip()]
+                                                                dnc_list = [d.strip().upper() for d in dnc_value.split(',') if d.strip()]
+                                                                
+                                                                # Keep phones where corresponding DNC is not 'Y'
+                                                                kept_phones = []
+                                                                had_removal = False
+                                                                
+                                                                for i in range(len(phone_list)):
+                                                                    # Use corresponding DNC value, or 'N' if no corresponding value
+                                                                    dnc_for_phone = dnc_list[i] if i < len(dnc_list) else 'N'
+                                                                    
+                                                                    if dnc_for_phone not in ['Y', 'YES', 'TRUE', '1']:
+                                                                        kept_phones.append(phone_list[i])
+                                                                    else:
+                                                                        had_removal = True
+                                                                
+                                                                # Update the phone field
+                                                                output_df.at[idx, phone_col] = ', '.join(kept_phones) if kept_phones else ''
+                                                                if had_removal:
+                                                                    rows_with_dnc_y.add(idx)
+                                                            
+                                                            # Single phone with comma-separated DNC (fallback)
+                                                            elif 'Y' in dnc_value:
+                                                                output_df.at[idx, phone_col] = ''
+                                                                rows_with_dnc_y.add(idx)
+                                                        
+                                                        # Check if DNC contains 'Y' anywhere (fallback for other patterns)
+                                                        elif 'Y' in dnc_value:
+                                                            output_df.at[idx, phone_col] = ''
+                                                            rows_with_dnc_y.add(idx)
                                                 
-                                            # Show which columns were dropped
-                                            dropped_cols = [col for col in output_df.columns if col not in filtered_df.columns]
-                                            if dropped_cols:
-                                                st.write("**Columns Being Dropped:**")
-                                                st.write(", ".join(dropped_cols))
-                                        
-                                        # Set progress details for large files
-                                        progress_detail = st.empty()
-                                        if len(filtered_df) > 10000:
-                                            progress_detail.text(f"Processing large file with {len(filtered_df):,} records...")
+                                                progress_bar.progress(0.8)
+                                                
+                                                # Calculate statistics
+                                                final_phones = {}
+                                                phones_removed = {}
+                                                for col in available_phone_cols:
+                                                    final_phones[col] = sum(output_df[col].notna() & (output_df[col] != ''))
+                                                    phones_removed[col] = original_phones[col] - final_phones[col]
+                                                
+                                                total_phones_removed = sum(phones_removed.values())
+                                                dnc_y_count = len(rows_with_dnc_y)
+                                                dnc_n_count = len(output_df) - dnc_y_count
+                                                
+                                                progress_bar.progress(1.0)
+                                                
+                                                # Display results
+                                                st.success(f"✅ DNC phone number cleaning complete! Processed {len(output_df):,} rows")
+                                                
+                                                # Show detailed statistics
+                                                st.subheader("Cleaning Statistics")
+                                                
+                                                # Summary metrics
+                                                col1, col2, col3, col4 = st.columns(4)
+                                                with col1:
+                                                    st.metric("Total Rows", f"{len(output_df):,}")
+                                                with col2:
+                                                    st.metric("DNC 'Y' Records", f"{dnc_y_count:,}")
+                                                with col3:
+                                                    st.metric("DNC 'N' Records", f"{dnc_n_count:,}")
+                                                with col4:
+                                                    st.metric("Phones Removed", f"{total_phones_removed:,}")
+                                                
+                                                # Detailed phone number statistics
+                                                if available_phone_cols:
+                                                    with st.expander("Detailed Phone Number Statistics"):
+                                                        phone_stats = []
+                                                        for col in available_phone_cols:
+                                                            phone_stats.append({
+                                                                'Column': col,
+                                                                'Original Count': original_phones[col],
+                                                                'Final Count': final_phones[col],
+                                                                'Removed': phones_removed[col],
+                                                                'Removal %': f"{(phones_removed[col] / original_phones[col] * 100) if original_phones[col] > 0 else 0:.1f}%"
+                                                            })
+                                                        
+                                                        stats_df = pd.DataFrame(phone_stats)
+                                                        st.dataframe(stats_df, use_container_width=True)
+                                                
+                                                # Show sample of cleaned data
+                                                with st.expander("Sample of Processed Data"):
+                                                    sample_cols = [selected_dnc_col] + available_phone_cols
+                                                    if 'FIRST_NAME' in output_df.columns:
+                                                        sample_cols = ['FIRST_NAME', 'LAST_NAME'] + sample_cols
+                                                    
+                                                # Show samples of both Y and N records
+                                                    dnc_y_sample = output_df[output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)].head(5)
+                                                    dnc_n_sample = output_df[~output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)].head(5)
+                                                    
+                                                    if not dnc_y_sample.empty:
+                                                        st.write("**Sample DNC 'Y' records (phone numbers should be empty):**")
+                                                        available_sample_cols = [col for col in sample_cols if col in output_df.columns]
+                                                        st.dataframe(dnc_y_sample[available_sample_cols], use_container_width=True)
+                                                    
+                                                    if not dnc_n_sample.empty:
+                                                        st.write("**Sample DNC 'N' records (phone numbers should be preserved):**")
+                                                        available_sample_cols = [col for col in sample_cols if col in output_df.columns]
+                                                        st.dataframe(dnc_n_sample[available_sample_cols], use_container_width=True)
+                                                
+                                                # Show processing summary
+                                                st.info(f"""
+                                                **Processing Summary:**
+                                                - 📋 Used DNC column: **{selected_dnc_col}**
+                                                - 📞 Processed {len(available_phone_cols)} phone columns: {', '.join(available_phone_cols)}
+                                                - 🚫 Removed phone numbers from {dnc_y_count:,} DNC 'Y' records ({dnc_y_count/len(output_df)*100:.1f}%)
+                                                - ✅ Preserved phone numbers in {dnc_n_count:,} DNC 'N' records ({dnc_n_count/len(output_df)*100:.1f}%)
+                                                - 📱 Total phone numbers removed: {total_phones_removed:,}
+                                                """)
+                                                
+                                                # Verification: Check that no records containing DNC 'Y' have phone numbers
+                                                verification_issues = []
+                                                for phone_col in available_phone_cols:
+                                                    dnc_y_with_phones = sum((output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)) & 
+                                                                           (output_df[phone_col].notna()) & 
+                                                                           (output_df[phone_col] != ''))
+                                                    if dnc_y_with_phones > 0:
+                                                        verification_issues.append(f"{phone_col}: {dnc_y_with_phones} records with DNC containing 'Y' still have phone numbers")
+                                                
+                                                if verification_issues:
+                                                    st.error("❌ **Verification Failed:**\n" + "\n".join(verification_issues))
+                                                else:
+                                                    st.success("✅ **Verification Passed:** All records with DNC containing 'Y' have had their phone numbers removed successfully!")
+                                                
+                                                # Provide download options
+                                                output_format = st.radio("Output format:", 
+                                                                       ("CSV", "Excel", "JSON"), 
+                                                                       horizontal=True,
+                                                                       key="dnc_output_format")
+                                                
+                                                create_download_button(
+                                                    output_df,
+                                                    "dnc_cleaned_simple",
+                                                    output_format.lower(),
+                                                    f"Download DNC cleaned data with {len(output_df):,} rows"
+                                                )
+                                
+                                # ADDRESS + HONWINCOME (basic version without names)
+                                elif option == "Address + HoNWIncome":
+                                        processing_text.text("Processing addresses with homeowner, net worth, and income data...")
                                         
                                         # Clean addresses if requested
                                         if st.session_state['user_preferences']['auto_clean_addresses']:
-                                            if 'PERSONAL_ADDRESS' in filtered_df.columns and filtered_df['PERSONAL_ADDRESS'].notna().any():
-                                                processing_text.text("Cleaning addresses...")
-                                                cleaned_count = 0
-                                                
-                                                # Process in chunks for large datasets
-                                                chunk_size = 5000
-                                                for i in range(0, len(filtered_df), chunk_size):
-                                                    end_idx = min(i + chunk_size, len(filtered_df))
-                                                    chunk = filtered_df.iloc[i:end_idx]
-                                                    
-                                                    # Update progress for large files
-                                                    if len(filtered_df) > 10000:
-                                                        progress_detail.text(f"Cleaning addresses... ({i:,} of {len(filtered_df):,} records)")
-                                                    
-                                                    # Apply cleaning to this chunk
-                                                    mask = chunk['PERSONAL_ADDRESS'].notna()
-                                                    chunk.loc[mask, 'PERSONAL_ADDRESS'] = chunk.loc[mask, 'PERSONAL_ADDRESS'].apply(
-                                                        lambda x: clean_address(x) if pd.notna(x) else x
-                                                    )
-                                                    filtered_df.iloc[i:end_idx] = chunk
-                                                    cleaned_count += mask.sum()
-                                                
-                                                st.info(f"Cleaned {cleaned_count:,} addresses.")
-                                            
-                                            # Also clean professional addresses if present
-                                            if 'PROFESSIONAL_ADDRESS' in filtered_df.columns and filtered_df['PROFESSIONAL_ADDRESS'].notna().any():
-                                                filtered_df['PROFESSIONAL_ADDRESS'] = filtered_df['PROFESSIONAL_ADDRESS'].apply(lambda x: clean_address(x) if pd.notna(x) else x)
-                                                
-                                            if 'COMPANY_ADDRESS' in filtered_df.columns and filtered_df['COMPANY_ADDRESS'].notna().any():
-                                                filtered_df['COMPANY_ADDRESS'] = filtered_df['COMPANY_ADDRESS'].apply(lambda x: clean_address(x) if pd.notna(x) else x)
+                                            df = df[df['PERSONAL_ADDRESS'].notna()]
+                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
                                         
-                                        # Format phone numbers if needed
-                                        phone_columns = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE', 'COMPANY_PHONE']
-                                        formatted_phones = 0
+                                        # Create the address components
+                                        address_components = ['PERSONAL_ADDRESS_CLEAN'] if 'PERSONAL_ADDRESS_CLEAN' in df.columns else ['PERSONAL_ADDRESS']
+                                        if 'PERSONAL_CITY' in df.columns:
+                                            address_components.append('PERSONAL_CITY')
+                                        if 'PERSONAL_STATE' in df.columns:
+                                            address_components.append('PERSONAL_STATE')
                                         
-                                        for phone_col in phone_columns:
-                                            if phone_col in filtered_df.columns:
-                                                if len(filtered_df) > 10000:
-                                                    progress_detail.text(f"Formatting {phone_col}...")
-                                                
-                                                # Format phone numbers in chunks for large datasets
-                                                mask = filtered_df[phone_col].notna()
-                                                filtered_df.loc[mask, phone_col] = filtered_df.loc[mask, phone_col].apply(validate_phone)
-                                                formatted_phones += mask.sum()
+                                        # Create the address field
+                                        df['ADDRESS'] = df[address_components].apply(
+                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
+                                        )
                                         
-                                        if formatted_phones > 0:
-                                            st.info(f"Formatted {formatted_phones:,} phone numbers.")
+                                        # Handle missing values for HoNWIncome data
+                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('') if 'HOMEOWNER' in df.columns else ''
+                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('') if 'NET_WORTH' in df.columns else ''
+                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('') if 'INCOME_RANGE' in df.columns else ''
+                                        
+                                        # Create the data field with HoNWIncome information
+                                        honw_parts = []
+                                        if 'HOMEOWNER' in df.columns:
+                                            honw_parts.append('Ho ' + df['HOMEOWNER'].astype(str))
+                                        if 'NET_WORTH' in df.columns:
+                                            honw_parts.append('NW ' + df['NET_WORTH'].astype(str))
+                                        if 'INCOME_RANGE' in df.columns:
+                                            honw_parts.append('Income ' + df['INCOME_RANGE'].astype(str))
+                                        
+                                        if honw_parts:
+                                            # Combine the Series objects using string concatenation
+                                            df['DATA'] = honw_parts[0]
+                                            for part in honw_parts[1:]:
+                                                df['DATA'] = df['DATA'] + ' | ' + part
+                                        else:
+                                            df['DATA'] = 'No HoNWIncome data available'
+                                        
+                                        # Create output with address and data only
+                                        output_df = df[['ADDRESS', 'DATA']].copy()
                                         
                                         progress_bar.progress(0.6)
                                         
-                                        # Determine output filename based on input file name
-                                        input_filename = uploaded_file.name
-                                        output_filename = input_filename
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows with address and HoNWIncome data")
                                         
-                                        if " - " in input_filename:
-                                            # Try to preserve the naming convention if it exists
-                                            output_filename = input_filename
-                                        else:
-                                            # Add " (output)" to the filename
-                                            output_filename = input_filename.replace(".csv", "") + " (output).csv"
-                                        
-                                        # Add data validation metrics
-                                        with st.expander("Data Quality Metrics"):
-                                            metrics = []
-                                            
-                                            # Name validation
-                                            if 'FIRST_NAME' in filtered_df.columns and 'LAST_NAME' in filtered_df.columns:
-                                                missing_names = sum((filtered_df['FIRST_NAME'].isna()) | (filtered_df['LAST_NAME'].isna()))
-                                                metrics.append(("Records missing name", missing_names, f"{missing_names/len(filtered_df)*100:.1f}%"))
-                                            
-                                            # Phone validation
-                                            if 'MOBILE_PHONE' in filtered_df.columns:
-                                                valid_phones = sum(filtered_df['MOBILE_PHONE'].str.match(r'^\(\d{3}\) \d{3}-\d{4}$', na=False))
-                                                total_phones = sum(filtered_df['MOBILE_PHONE'].notna())
-                                                if total_phones > 0:
-                                                    metrics.append(("Valid phone numbers", valid_phones, f"{valid_phones/total_phones*100:.1f}%"))
-                                            
-                                            # Address validation
-                                            if all(col in filtered_df.columns for col in ['PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP']):
-                                                complete_addresses = sum(
-                                                    filtered_df['PERSONAL_ADDRESS'].notna() & 
-                                                    filtered_df['PERSONAL_CITY'].notna() & 
-                                                    filtered_df['PERSONAL_STATE'].notna() & 
-                                                    filtered_df['PERSONAL_ZIP'].notna()
-                                                )
-                                                metrics.append(("Complete addresses", complete_addresses, f"{complete_addresses/len(filtered_df)*100:.1f}%"))
-                                            
-                                            # DNC validation
-                                            if 'DNC' in filtered_df.columns:
-                                                dnc_count = sum(filtered_df['DNC'] == 'Y')
-                                                metrics.append(("Do Not Call records", dnc_count, f"{dnc_count/len(filtered_df)*100:.1f}%"))
-                                            
-                                            # Display metrics in a table
-                                            metrics_df = pd.DataFrame(metrics, columns=["Metric", "Count", "Percentage"])
-                                            st.dataframe(metrics_df)
-                                        
-                                        # Success message
-                                        st.success(f"✅ Processing complete! Prepared complete contact export with {len(filtered_df):,} rows")
-                                        
-                                        # Summary statistics
-                                        cols = st.columns(3)
-                                        with cols[0]:
-                                            st.metric("Total Records", f"{len(filtered_df):,}")
-                                        
-                                        if 'MOBILE_PHONE' in filtered_df.columns:
-                                            with cols[1]:
-                                                phone_count = sum(filtered_df['MOBILE_PHONE'].notna())
-                                                st.metric("Records with Phones", f"{phone_count:,}")
-                                        
-                                        if 'PERSONAL_ADDRESS' in filtered_df.columns:
-                                            with cols[2]:
-                                                address_count = sum(filtered_df['PERSONAL_ADDRESS'].notna())
-                                                st.metric("Records with Addresses", f"{address_count:,}")
-                                        
-                                        # Provide download options
-                                        output_format = st.radio("Output format:", 
-                                                              ("CSV", "Excel", "JSON"), 
-                                                              horizontal=True)
-                                        
-                                        # Create download button
-                                        create_download_button(
-                                            filtered_df,
-                                            output_filename.replace(".csv", ""),  # Remove .csv extension as it's added by the function
-                                            output_format.lower(),
-                                            f"Download processed data with {len(filtered_df):,} rows"
+                                        # Show data summary
+                                        complete_records = sum(
+                                            output_df['ADDRESS'].notna() & 
+                                            (output_df['ADDRESS'] != '')
                                         )
-                                        
-                                        progress_bar.progress(1.0)
-                                        
-                                        # Clear progress detail
-                                        if len(filtered_df) > 10000:
-                                            progress_detail.empty()
-                                    
-                            except Exception as e:
-                                st.error(f"Error processing file: {str(e)}")
-                                logger.error(f"Processing error: {str(e)}", exc_info=True)
-                
-                # Special handling for Company Industry
-                elif uploaded_file and option == "Company Industry":
-                    try:
-                        df = pd.read_csv(uploaded_file)
-                        st.success(f"File loaded with {len(df):,} rows and {len(df.columns):,} columns")
-                        
-                        # Check for required column
-                        if 'COMPANY_INDUSTRY' not in df.columns:
-                            st.error("CSV file must contain the 'COMPANY_INDUSTRY' column.")
-                        else:
-                            # Extract unique industries
-                            unique_industries = sorted(df['COMPANY_INDUSTRY'].dropna().unique())
-                            
-                            if not unique_industries:
-                                st.warning("No industries found in the 'COMPANY_INDUSTRY' column.")
-                            else:
-                                # Show industry stats
-                                st.write(f"Found {len(unique_industries):,} unique industries")
-                                
-                                # Industry selection interface
-                                st.subheader("Select Industries to Filter")
-                                
-                                # Add search box for industries
-                                search_term = st.text_input("Search industries:", 
-                                                          help="Type to search within industry names")
-                                
-                                # Filter industries by search term
-                                if search_term:
-                                    filtered_industries = [ind for ind in unique_industries 
-                                                         if search_term.lower() in str(ind).lower()]
-                                else:
-                                    filtered_industries = unique_industries
-                                
-                                # Select all/none buttons
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("Select All"):
-                                        if 'selected_industries' not in st.session_state:
-                                            st.session_state['selected_industries'] = filtered_industries
-                                        else:
-                                            st.session_state['selected_industries'] = filtered_industries
-                                
-
-                                with col2:
-                                    if st.button("Clear Selection"):
-                                        if 'selected_industries' in st.session_state:
-                                            st.session_state['selected_industries'] = []
-                                
-                                # Initialize selected_industries in session state if not already there
-                                if 'selected_industries' not in st.session_state:
-                                    st.session_state['selected_industries'] = []
-                                
-                                # Display multiselect with industries
-                                selected_industries = st.multiselect(
-                                    "Choose one or more industries:",
-                                    options=filtered_industries,
-                                    default=st.session_state['selected_industries'],
-                                    help="Select multiple industries to include in the filtered output"
-                                )
-                                
-                                # Update session state
-                                st.session_state['selected_industries'] = selected_industries
-                                
-                                if st.button("Filter by Selected Industries"):
-                                    if not selected_industries:
-                                        st.error("Please select at least one industry to filter.")
-                                    else:
-                                        # Filter DataFrame based on selected industries
-                                        filtered_df = df[df['COMPANY_INDUSTRY'].isin(selected_industries)]
-                                        
-                                        # Display results
-                                        st.success("✅ Filtering complete!")
-                                        st.write(f"Filtered to {len(filtered_df):,} rows based on {len(selected_industries)} selected industries")
-                                        
-                                        # Show summary of industry distribution
-                                        with st.expander("Industry Distribution in Results"):
-                                            industry_counts = filtered_df['COMPANY_INDUSTRY'].value_counts()
-                                            count_df = pd.DataFrame({
-                                                'Industry': industry_counts.index,
-                                                'Count': industry_counts.values,
-                                                'Percentage': industry_counts.values / len(filtered_df) * 100
-                                            })
-                                            st.dataframe(count_df, use_container_width=True)
+                                        st.write(f"**Complete records (with address):** {complete_records:,} ({complete_records/len(output_df)*100:.1f}%)")
                                         
                                         # Provide download options
                                         output_format = st.radio("Output format:", 
@@ -1555,88 +1990,987 @@ def main():
                                                                horizontal=True)
                                         
                                         create_download_button(
-                                            filtered_df, 
-                                            "filtered_by_company_industry", 
+                                            output_df,
+                                            "address_honwincome",
                                             output_format.lower(),
-                                            f"Download {len(filtered_df):,} filtered records"
+                                            f"Download {len(output_df):,} records with address and HoNWIncome data"
                                         )
                                         
-                                        st.info(
-                                            "The output includes all columns from your original file, filtered to only include rows where "
-                                            "COMPANY_INDUSTRY matches your selected industries."
+                                        # Add Google My Maps instructions
+                                        with st.expander("How to Import into Google My Maps"):
+                                            st.markdown("""
+                                            ### How to Import into Google My Maps:
+                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
+                                            2. Click **Create a new map**.
+                                            3. In the new map, click **Import** under the layer section.
+                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
+                                            5. Set the following:
+                                               - **Placemarker Pins**: Select the `ADDRESS` column.
+                                               - **Placemarker Name (Title)**: Select the `DATA` column.
+                                            6. Dismiss any locations that result in an error during import.
+                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+                                            """)
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # ADDRESS + HONWINCOME & PHONE (basic version without names)
+                                elif option == "Address + HoNWIncome & Phone":
+                                        processing_text.text("Processing addresses with homeowner, net worth, income, and phone data...")
+                                        
+                                        # Clean addresses if requested
+                                        if st.session_state['user_preferences']['auto_clean_addresses']:
+                                            df = df[df['PERSONAL_ADDRESS'].notna()]
+                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
+                                        
+                                        # Create the address field
+                                        address_components = ['PERSONAL_ADDRESS_CLEAN'] if 'PERSONAL_ADDRESS_CLEAN' in df.columns else ['PERSONAL_ADDRESS']
+                                        if 'PERSONAL_CITY' in df.columns:
+                                            address_components.append('PERSONAL_CITY')
+                                        if 'PERSONAL_STATE' in df.columns:
+                                            address_components.append('PERSONAL_STATE')
+                                        
+                                        df['ADDRESS'] = df[address_components].apply(
+                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
                                         )
-                    except Exception as e:
-                        st.error(f"Error processing file: {str(e)}")
-                        logger.error(f"Processing error: {str(e)}", exc_info=True)
+                                        
+                                        # Handle missing values
+                                        df['MOBILE_PHONE'] = df['MOBILE_PHONE'].fillna('')
+                                        df['DNC'] = df['DNC'].fillna('N')
+                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('') if 'HOMEOWNER' in df.columns else ''
+                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('') if 'NET_WORTH' in df.columns else ''
+                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('') if 'INCOME_RANGE' in df.columns else ''
+                                        
+                                        # Format phone numbers if needed
+                                        if st.session_state['user_preferences'].get('format_phone_numbers', True):
+                                            df['MOBILE_PHONE'] = df['MOBILE_PHONE'].apply(validate_phone)
+                                        
+                                        # Create the data field with HoNWIncome and phone info
+                                        honw_parts = []
+                                        if 'HOMEOWNER' in df.columns:
+                                            honw_parts.append('Ho ' + df['HOMEOWNER'].astype(str))
+                                        if 'NET_WORTH' in df.columns:
+                                            honw_parts.append('NW ' + df['NET_WORTH'].astype(str))
+                                        if 'INCOME_RANGE' in df.columns:
+                                            honw_parts.append('Income ' + df['INCOME_RANGE'].astype(str))
+                                        
+                                        # Create base data field
+                                        if honw_parts:
+                                            # Combine the Series objects using string concatenation
+                                            df['DATA'] = honw_parts[0]
+                                            for part in honw_parts[1:]:
+                                                df['DATA'] = df['DATA'] + ' | ' + part
+                                        else:
+                                            df['DATA'] = 'No HoNWIncome data'
+                                        
+                                        # Add phone for non-DNC records
+                                        df['DATA'] = df['DATA'] + \
+                                                df.apply(lambda row: ' | Phone ' + str(row['MOBILE_PHONE']) if (
+                                                        row['DNC'] != 'Y' and row['MOBILE_PHONE'] != '') else '', axis=1)
+                                        
+                                        # Create output
+                                        output_df = df[['ADDRESS', 'DATA']].copy()
+                                        
+                                        progress_bar.progress(0.6)
+                                        
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows with address, HoNWIncome, and phone data")
+                                        
+                                        # Add stats about phone numbers
+                                        total_phones = len(df[df['MOBILE_PHONE'] != ''])
+                                        callable_phones = len(df[(df['MOBILE_PHONE'] != '') & (df['DNC'] != 'Y')])
+                                        
+                                        st.write(f"**Total records with phone numbers:** {total_phones:,} ({total_phones/len(df)*100:.1f}%)")
+                                        st.write(f"**Callable phone numbers (not DNC):** {callable_phones:,} ({callable_phones/len(df)*100:.1f}%)")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "address_honwincome_phone",
+                                            output_format.lower(),
+                                            f"Download {len(output_df):,} records with address, HoNWIncome, and phone data"
+                                        )
+                                        
+                                        # Add Google My Maps instructions
+                                        with st.expander("How to Import into Google My Maps"):
+                                            st.markdown("""
+                                            ### How to Import into Google My Maps:
+                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
+                                            2. Click **Create a new map**.
+                                            3. In the new map, click **Import** under the layer section.
+                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
+                                            5. Set the following:
+                                               - **Placemarker Pins**: Select the `ADDRESS` column.
+                                               - **Placemarker Name (Title)**: Select the `DATA` column.
+                                            6. Dismiss any locations that result in an error during import.
+                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+                                            """)
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # FULL COMBINED ADDRESS
+                                elif option == "Full Combined Address":
+                                        processing_text.text("Processing comprehensive address data with metadata...")
+                                        
+                                        # Clean addresses if requested
+                                        if st.session_state['user_preferences']['auto_clean_addresses']:
+                                            df = df[df['PERSONAL_ADDRESS'].notna()]
+                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
+                                        
+                                        # Create comprehensive output columns
+                                        output_columns = ['FIRST_NAME', 'LAST_NAME']
+                                        
+                                        # Add cleaned or original address
+                                        if 'PERSONAL_ADDRESS_CLEAN' in df.columns:
+                                            output_columns.append('PERSONAL_ADDRESS_CLEAN')
+                                        else:
+                                            output_columns.append('PERSONAL_ADDRESS')
+                                        
+                                        # Add address components
+                                        address_cols = ['PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_ZIP4']
+                                        for col in address_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add phone numbers
+                                        phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE']
+                                        for col in phone_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add demographic data
+                                        demo_cols = ['AGE_RANGE', 'GENDER', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE', 'MARRIED', 'CHILDREN']
+                                        for col in demo_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add email columns
+                                        email_cols = ['PERSONAL_EMAILS', 'BUSINESS_EMAIL']
+                                        for col in email_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Create output with available columns
+                                        available_columns = [col for col in output_columns if col in df.columns]
+                                        output_df = df[available_columns].copy()
+                                        
+                                        # Format phone numbers if enabled
+                                        if st.session_state['user_preferences'].get('format_phone_numbers', True):
+                                            for col in phone_cols:
+                                                if col in output_df.columns:
+                                                    output_df[col] = output_df[col].apply(validate_phone)
+                                        
+                                        progress_bar.progress(0.6)
+                                        
+                                        st.success(f"✅ Processing complete! Generated comprehensive dataset with {len(output_df):,} rows and {len(output_df.columns):,} columns")
+                                        
+                                        # Show data summary
+                                        complete_records = sum(
+                                            output_df['FIRST_NAME'].notna() & 
+                                            output_df['LAST_NAME'].notna() & 
+                                            output_df[available_columns[2]].notna()  # Address column
+                                        )
+                                        st.write(f"**Complete records (with name and address):** {complete_records:,} ({complete_records/len(output_df)*100:.1f}%)")
+                                        
+                                        # Show columns included
+                                        with st.expander("Columns Included in Full Combined Address"):
+                                            col_categories = {
+                                                "Identity": ['FIRST_NAME', 'LAST_NAME'],
+                                                "Address": ['PERSONAL_ADDRESS_CLEAN', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP', 'PERSONAL_ZIP4'],
+                                                "Phone Numbers": ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE'],
+                                                "Demographics": ['AGE_RANGE', 'GENDER', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE', 'MARRIED', 'CHILDREN'],
+                                                "Email": ['PERSONAL_EMAILS', 'BUSINESS_EMAIL']
+                                            }
+                                            
+                                            for category, cols in col_categories.items():
+                                                included_cols = [col for col in cols if col in available_columns]
+                                                if included_cols:
+                                                    st.write(f"**{category}:** {', '.join(included_cols)}")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "full_combined_address",
+                                            output_format.lower(),
+                                            f"Download comprehensive dataset with {len(output_df):,} rows"
+                                        )
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # PHONE & CREDIT SCORE
+                                elif option == "Phone & Credit Score":
+                                        processing_text.text("Processing phone numbers and credit scores with address details...")
+                                        
+                                        # Clean addresses if requested
+                                        if st.session_state['user_preferences']['auto_clean_addresses']:
+                                            df = df[df['PERSONAL_ADDRESS'].notna()]
+                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
+                                        
+                                        # Select relevant columns for phone & credit focus
+                                        output_columns = ['FIRST_NAME', 'LAST_NAME']
+                                        
+                                        # Add address columns
+                                        if 'PERSONAL_ADDRESS_CLEAN' in df.columns:
+                                            output_columns.append('PERSONAL_ADDRESS_CLEAN')
+                                        else:
+                                            output_columns.append('PERSONAL_ADDRESS')
+                                        
+                                        address_cols = ['PERSONAL_CITY', 'PERSONAL_STATE', 'PERSONAL_ZIP']
+                                        for col in address_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add all available phone columns
+                                        phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE']
+                                        for col in phone_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add credit score and related columns
+                                        credit_cols = ['SKIPTRACE_CREDIT_RATING']
+                                        for col in credit_cols:
+                                            if col in df.columns:
+                                                output_columns.append(col)
+                                        
+                                        # Add DNC status
+                                        if 'DNC' in df.columns:
+                                            output_columns.append('DNC')
+                                        
+                                        # Create output with available columns
+                                        available_columns = [col for col in output_columns if col in df.columns]
+                                        output_df = df[available_columns].copy()
+                                        
+                                        # Format phone numbers if enabled
+                                        if st.session_state['user_preferences'].get('format_phone_numbers', True):
+                                            for col in phone_cols:
+                                                if col in output_df.columns:
+                                                    output_df[col] = output_df[col].apply(validate_phone)
+                                        
+                                        progress_bar.progress(0.6)
+                                        
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows focused on phone numbers and credit scores")
+                                        
+                                        # Show statistics
+                                        available_phone_cols = [col for col in phone_cols if col in output_df.columns]
+                                        phone_stats = {}
+                                        for col in available_phone_cols:
+                                            phone_stats[col] = sum(output_df[col].notna() & (output_df[col] != ''))
+                                        
+                                        if phone_stats:
+                                            st.write("**Phone Number Statistics:**")
+                                            for col, count in phone_stats.items():
+                                                st.write(f"- **{col}:** {count:,} records ({count/len(output_df)*100:.1f}%)")
+                                        
+                                        # Credit score statistics
+                                        if 'SKIPTRACE_CREDIT_RATING' in output_df.columns:
+                                            credit_records = sum(output_df['SKIPTRACE_CREDIT_RATING'].notna() & (output_df['SKIPTRACE_CREDIT_RATING'] != ''))
+                                            st.write(f"**Credit Scores Available:** {credit_records:,} records ({credit_records/len(output_df)*100:.1f}%)")
+                                        
+                                        # DNC statistics
+                                        if 'DNC' in output_df.columns:
+                                            dnc_y = sum(output_df['DNC'] == 'Y')
+                                            dnc_n = sum(output_df['DNC'] == 'N')
+                                            st.write(f"**DNC Status:** {dnc_y:,} DNC 'Y', {dnc_n:,} DNC 'N'")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "phone_credit_score",
+                                            output_format.lower(),
+                                            f"Download {len(output_df):,} records with phone and credit data"
+                                        )
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # COMPLETE CONTACT EXPORT
+                                elif option == "Complete Contact Export":
+                                        processing_text.text("Processing and cleaning complete contact dataset...")
+                                        
+                                        # Make a copy to preserve original structure
+                                        output_df = df.copy()
+                                        
+                                        # Clean addresses if they exist and auto-clean is enabled
+                                        if 'PERSONAL_ADDRESS' in output_df.columns and st.session_state['user_preferences']['auto_clean_addresses']:
+                                            processing_text.text("Cleaning personal addresses...")
+                                            # Only clean addresses that exist
+                                            mask = output_df['PERSONAL_ADDRESS'].notna()
+                                            output_df.loc[mask, 'PERSONAL_ADDRESS'] = output_df.loc[mask, 'PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
+                                        
+                                        # Clean business addresses if they exist
+                                        if 'COMPANY_ADDRESS' in output_df.columns and st.session_state['user_preferences']['auto_clean_addresses']:
+                                            processing_text.text("Cleaning business addresses...")
+                                            mask = output_df['COMPANY_ADDRESS'].notna()
+                                            output_df.loc[mask, 'COMPANY_ADDRESS'] = output_df.loc[mask, 'COMPANY_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.4)
+                                        
+                                        # Format phone numbers if enabled
+                                        phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE', 'COMPANY_PHONE']
+                                        available_phone_cols = [col for col in phone_cols if col in output_df.columns]
+                                        
+                                        if available_phone_cols and st.session_state['user_preferences'].get('format_phone_numbers', True):
+                                            processing_text.text("Formatting phone numbers...")
+                                            for col in available_phone_cols:
+                                                output_df[col] = output_df[col].apply(validate_phone)
+                                            progress_bar.progress(0.6)
+                                        
+                                        progress_bar.progress(0.8)
+                                        
+                                        st.success(f"✅ Complete contact export ready! Processed {len(output_df):,} rows with {len(output_df.columns):,} columns")
+                                        
+                                        # Show comprehensive statistics
+                                        st.subheader("Dataset Overview")
+                                        
+                                        # Basic statistics
+                                        col1, col2, col3, col4 = st.columns(4)
+                                        with col1:
+                                            st.metric("Total Records", f"{len(output_df):,}")
+                                        with col2:
+                                            st.metric("Total Columns", f"{len(output_df.columns):,}")
+                                        with col3:
+                                            complete_names = sum(output_df['FIRST_NAME'].notna() & output_df['LAST_NAME'].notna()) if 'FIRST_NAME' in output_df.columns and 'LAST_NAME' in output_df.columns else 0
+                                            st.metric("Complete Names", f"{complete_names:,}")
+                                        with col4:
+                                            complete_addresses = sum(output_df['PERSONAL_ADDRESS'].notna()) if 'PERSONAL_ADDRESS' in output_df.columns else 0
+                                            st.metric("Personal Addresses", f"{complete_addresses:,}")
+                                        
+                                        # Show data quality metrics
+                                        with st.expander("Data Quality Metrics"):
+                                            quality_metrics = []
+                                            
+                                            # Contact information completeness
+                                            if available_phone_cols:
+                                                for col in available_phone_cols:
+                                                    non_empty = sum(output_df[col].notna() & (output_df[col] != ''))
+                                                    quality_metrics.append({
+                                                        'Field': col,
+                                                        'Non-Empty Records': non_empty,
+                                                        'Completeness %': f"{non_empty/len(output_df)*100:.1f}%"
+                                                    })
+                                            
+                                            # Email completeness
+                                            email_cols = ['PERSONAL_EMAILS', 'BUSINESS_EMAIL']
+                                            for col in email_cols:
+                                                if col in output_df.columns:
+                                                    non_empty = sum(output_df[col].notna() & (output_df[col] != ''))
+                                                    quality_metrics.append({
+                                                        'Field': col,
+                                                        'Non-Empty Records': non_empty,
+                                                        'Completeness %': f"{non_empty/len(output_df)*100:.1f}%"
+                                                    })
+                                            
+                                            if quality_metrics:
+                                                quality_df = pd.DataFrame(quality_metrics)
+                                                st.dataframe(quality_df, use_container_width=True)
+                                        
+                                        # Show column categories
+                                        with st.expander("Complete Column List by Category"):
+                                            col_categories = {
+                                                "Identity": [col for col in output_df.columns if col in ['FIRST_NAME', 'LAST_NAME', 'UUID']],
+                                                "Personal Address": [col for col in output_df.columns if 'PERSONAL_' in col and any(addr in col for addr in ['ADDRESS', 'CITY', 'STATE', 'ZIP'])],
+                                                "Phone Numbers": [col for col in output_df.columns if 'PHONE' in col or col in ['MOBILE_PHONE', 'DIRECT_NUMBER']],
+                                                "Email": [col for col in output_df.columns if 'EMAIL' in col],
+                                                "Business/Professional": [col for col in output_df.columns if any(prefix in col for prefix in ['COMPANY_', 'PROFESSIONAL_', 'JOB_', 'BUSINESS_'])],
+                                                "Demographics": [col for col in output_df.columns if col in ['AGE_RANGE', 'GENDER', 'HOMEOWNER', 'NET_WORTH', 'INCOME_RANGE', 'MARRIED', 'CHILDREN']],
+                                                "Skiptrace Data": [col for col in output_df.columns if 'SKIPTRACE_' in col],
+                                                "Other": []
+                                            }
+                                            
+                                            # Assign uncategorized columns to "Other"
+                                            categorized_cols = []
+                                            for category_cols in col_categories.values():
+                                                categorized_cols.extend(category_cols)
+                                            col_categories["Other"] = [col for col in output_df.columns if col not in categorized_cols]
+                                            
+                                            for category, cols in col_categories.items():
+                                                if cols:
+                                                    st.write(f"**{category} ({len(cols)} columns):** {', '.join(cols)}")
+                                        
+                                        # Show sample data
+                                        if st.session_state['user_preferences']['show_preview']:
+                                            with st.expander("Sample Data Preview"):
+                                                sample_cols = []
+                                                if 'FIRST_NAME' in output_df.columns:
+                                                    sample_cols.extend(['FIRST_NAME', 'LAST_NAME'])
+                                                if 'PERSONAL_ADDRESS' in output_df.columns:
+                                                    sample_cols.append('PERSONAL_ADDRESS')
+                                                if available_phone_cols:
+                                                    sample_cols.append(available_phone_cols[0])  # Add first phone column
+                                                
+                                                if sample_cols:
+                                                    st.dataframe(output_df[sample_cols].head(10), use_container_width=True)
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "complete_contact_export",
+                                            output_format.lower(),
+                                            f"Download complete cleaned dataset with {len(output_df):,} rows"
+                                        )
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # ADDRESS + HONWINCOME FIRST NAME LAST NAME
+                                elif option == "Address + HoNWIncome First Name Last Name":
+                                        processing_text.text("Processing addresses with homeowner, net worth, income data, and names...")
+                                        
+                                        # Clean addresses if requested
+                                        if st.session_state['user_preferences']['auto_clean_addresses']:
+                                            df = df[df['PERSONAL_ADDRESS'].notna()]
+                                            df['PERSONAL_ADDRESS_CLEAN'] = df['PERSONAL_ADDRESS'].apply(clean_address)
+                                            progress_bar.progress(0.2)
+                                        
+                                        # Create the address components
+                                        address_components = ['PERSONAL_ADDRESS_CLEAN'] if 'PERSONAL_ADDRESS_CLEAN' in df.columns else ['PERSONAL_ADDRESS']
+                                        if 'PERSONAL_CITY' in df.columns:
+                                            address_components.append('PERSONAL_CITY')
+                                        if 'PERSONAL_STATE' in df.columns:
+                                            address_components.append('PERSONAL_STATE')
+                                        
+                                        # Create the address field
+                                        df['ADDRESS'] = df[address_components].apply(
+                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
+                                        )
+                                        
+                                        # Handle missing values for HoNWIncome data
+                                        df['HOMEOWNER'] = df['HOMEOWNER'].fillna('') if 'HOMEOWNER' in df.columns else ''
+                                        df['NET_WORTH'] = df['NET_WORTH'].fillna('') if 'NET_WORTH' in df.columns else ''
+                                        df['INCOME_RANGE'] = df['INCOME_RANGE'].fillna('') if 'INCOME_RANGE' in df.columns else ''
+                                        
+                                        # Create the data field with HoNWIncome information
+                                        honw_parts = []
+                                        if 'HOMEOWNER' in df.columns:
+                                            honw_parts.append('Ho ' + df['HOMEOWNER'].astype(str))
+                                        if 'NET_WORTH' in df.columns:
+                                            honw_parts.append('NW ' + df['NET_WORTH'].astype(str))
+                                        if 'INCOME_RANGE' in df.columns:
+                                            honw_parts.append('Income ' + df['INCOME_RANGE'].astype(str))
+                                        
+                                        if honw_parts:
+                                            # Combine the Series objects using string concatenation
+                                            df['DATA'] = honw_parts[0]
+                                            for part in honw_parts[1:]:
+                                                df['DATA'] = df['DATA'] + ' | ' + part
+                                        else:
+                                            df['DATA'] = 'No HoNWIncome data available'
+                                        
+                                        # Create output with names and address data
+                                        output_df = df[['FIRST_NAME', 'LAST_NAME', 'ADDRESS', 'DATA']].copy()
+                                        
+                                        progress_bar.progress(0.6)
+                                        
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows with names and address data")
+                                        
+                                        # Show data summary
+                                        complete_records = sum(
+                                            output_df['FIRST_NAME'].notna() & 
+                                            output_df['LAST_NAME'].notna() & 
+                                            output_df['ADDRESS'].notna() & 
+                                            (output_df['ADDRESS'] != '')
+                                        )
+                                        st.write(f"**Complete records (with name and address):** {complete_records:,} ({complete_records/len(output_df)*100:.1f}%)")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "address_honwincome_names",
+                                            output_format.lower(),
+                                            f"Download {len(output_df):,} records with names and address data"
+                                        )
+                                        
+                                        # Add Google My Maps instructions
+                                        with st.expander("How to Import into Google My Maps"):
+                                            st.markdown("""
+                                            ### How to Import into Google My Maps:
+                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
+                                            2. Click **Create a new map**.
+                                            3. In the new map, click **Import** under the layer section.
+                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
+                                            5. Set the following:
+                                               - **Placemarker Pins**: Select the `ADDRESS` column.
+                                               - **Placemarker Name (Title)**: Combine `FIRST_NAME` and `LAST_NAME` or use `DATA` column.
+                                            6. Dismiss any locations that result in an error during import.
+                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+                                            """)
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # BUSINESS ADDRESS + FIRST NAME LAST NAME
+                                elif option == "Business Address + First Name Last Name":
+                                        processing_text.text("Processing business addresses with names...")
+                                        
+                                        # Determine which business address column to use
+                                        business_address_col = None
+                                        business_city_col = None
+                                        business_state_col = None
+                                        business_zip_col = None
+                                        
+                                        if 'COMPANY_ADDRESS' in df.columns:
+                                            business_address_col = 'COMPANY_ADDRESS'
+                                            business_city_col = 'COMPANY_CITY' if 'COMPANY_CITY' in df.columns else None
+                                            business_state_col = 'COMPANY_STATE' if 'COMPANY_STATE' in df.columns else None
+                                            business_zip_col = 'COMPANY_ZIP' if 'COMPANY_ZIP' in df.columns else None
+                                        elif 'PROFESSIONAL_ADDRESS' in df.columns:
+                                            business_address_col = 'PROFESSIONAL_ADDRESS'
+                                            business_city_col = 'PROFESSIONAL_CITY' if 'PROFESSIONAL_CITY' in df.columns else None
+                                            business_state_col = 'PROFESSIONAL_STATE' if 'PROFESSIONAL_STATE' in df.columns else None
+                                            business_zip_col = 'PROFESSIONAL_ZIP' if 'PROFESSIONAL_ZIP' in df.columns else None
+                                        
+                                        # Filter to rows with business addresses
+                                        df = df[df[business_address_col].notna()]
+                                        
+                                        # Clean business addresses
+                                        if st.session_state['user_preferences']['auto_clean_addresses']:
+                                            processing_text.text("Cleaning business addresses...")
+                                            df['BUSINESS_ADDRESS_CLEAN'] = df[business_address_col].apply(clean_address)
+                                            progress_bar.progress(0.3)
+                                            business_address_display = 'BUSINESS_ADDRESS_CLEAN'
+                                        else:
+                                            business_address_display = business_address_col
+                                        
+                                        # Create the business address field
+                                        address_components = [business_address_display]
+                                        if business_city_col and business_city_col in df.columns:
+                                            address_components.append(business_city_col)
+                                        if business_state_col and business_state_col in df.columns:
+                                            address_components.append(business_state_col)
+                                        if business_zip_col and business_zip_col in df.columns:
+                                            address_components.append(business_zip_col)
+                                        
+                                        # Create the full business address
+                                        df['BUSINESS_ADDRESS'] = df[address_components].apply(
+                                            lambda row: ', '.join([str(x) for x in row if pd.notna(x) and x != '']), axis=1
+                                        )
+                                        
+                                        progress_bar.progress(0.6)
+                                        
+                                        # Create output with names and business address
+                                        output_df = df[['FIRST_NAME', 'LAST_NAME', 'BUSINESS_ADDRESS']].copy()
+                                        
+                                        # Add additional business info if available
+                                        if 'COMPANY_NAME' in df.columns:
+                                            output_df['COMPANY_NAME'] = df['COMPANY_NAME']
+                                        if 'JOB_TITLE' in df.columns:
+                                            output_df['JOB_TITLE'] = df['JOB_TITLE']
+                                        if 'COMPANY_INDUSTRY' in df.columns:
+                                            output_df['COMPANY_INDUSTRY'] = df['COMPANY_INDUSTRY']
+                                        
+                                        st.success(f"✅ Processing complete! Generated {len(output_df):,} rows with names and business addresses")
+                                        
+                                        # Show data summary
+                                        complete_records = sum(
+                                            output_df['FIRST_NAME'].notna() & 
+                                            output_df['LAST_NAME'].notna() & 
+                                            output_df['BUSINESS_ADDRESS'].notna() & 
+                                            (output_df['BUSINESS_ADDRESS'] != '')
+                                        )
+                                        st.write(f"**Complete records (with name and business address):** {complete_records:,} ({complete_records/len(output_df)*100:.1f}%)")
+                                        
+                                        # Show source information
+                                        source_info = f"**Business addresses sourced from:** {business_address_col}"
+                                        if business_city_col or business_state_col or business_zip_col:
+                                            additional_cols = [col for col in [business_city_col, business_state_col, business_zip_col] if col]
+                                            source_info += f" (with {', '.join(additional_cols)})"
+                                        st.info(source_info)
+                                        
+                                        # Show additional columns included
+                                        additional_cols = [col for col in ['COMPANY_NAME', 'JOB_TITLE', 'COMPANY_INDUSTRY'] if col in output_df.columns]
+                                        if additional_cols:
+                                            st.write(f"**Additional business data included:** {', '.join(additional_cols)}")
+                                        
+                                        # Provide download options
+                                        output_format = st.radio("Output format:", 
+                                                               ("CSV", "Excel", "JSON"), 
+                                                               horizontal=True)
+                                        
+                                        create_download_button(
+                                            output_df,
+                                            "business_address_names",
+                                            output_format.lower(),
+                                            f"Download {len(output_df):,} records with names and business addresses"
+                                        )
+                                        
+                                        # Add Google My Maps instructions
+                                        with st.expander("How to Import into Google My Maps"):
+                                            st.markdown("""
+                                            ### How to Import into Google My Maps:
+                                            1. Go to [Google My Maps](https://www.google.com/mymaps).
+                                            2. Click **Create a new map**.
+                                            3. In the new map, click **Import** under the layer section.
+                                            4. Upload the downloaded CSV file(s) or extract from ZIP.
+                                            5. Set the following:
+                                               - **Placemarker Pins**: Select the `BUSINESS_ADDRESS` column.
+                                               - **Placemarker Name (Title)**: Combine `FIRST_NAME` and `LAST_NAME`, or use `COMPANY_NAME` if available.
+                                            6. Dismiss any locations that result in an error during import.
+                                            7. Zoom out and manually delete any pins that are significantly distant from the main cluster.
+                                            """)
+                                        
+                                        progress_bar.progress(1.0)
+                                
+                                # DUPLICATE ANALYSIS & FREQUENCY COUNTER
+                                elif option == "Duplicate Analysis & Frequency Counter":
+                                        processing_text.text("Analyzing duplicate records and calculating frequencies...")
+                                        
+                                        # Make a copy to avoid modifying the original
+                                        analysis_df = df.copy()
+                                        
+                                        progress_bar.progress(0.1)
+                                        
+                                        # User interface for duplicate detection method
+                                        st.subheader("Duplicate Detection Configuration")
+                                        
+                                        duplicate_method = st.radio(
+                                            "How should duplicates be detected?",
+                                            ["All columns (exact match)", "Selected columns only"],
+                                            help="Choose whether to compare all columns or select specific ones for duplicate detection"
+                                        )
+                                        
+                                        columns_for_comparison = []
+                                        
+                                        if duplicate_method == "Selected columns only":
+                                            # Let user select which columns to use for duplicate detection
+                                            available_columns = analysis_df.columns.tolist()
+                                            columns_for_comparison = st.multiselect(
+                                                "Select columns to use for duplicate detection:",
+                                                options=available_columns,
+                                                default=available_columns[:3] if len(available_columns) >= 3 else available_columns,
+                                                help="Records will be considered duplicates if they match on ALL selected columns"
+                                            )
+                                            
+                                            if not columns_for_comparison:
+                                                st.error("Please select at least one column for duplicate detection.")
+                                                st.stop()
+                                        else:
+                                            # Use all columns
+                                            columns_for_comparison = analysis_df.columns.tolist()
+                                        
+                                        # Sort order preference
+                                        sort_order = st.radio(
+                                            "Sort order:",
+                                            ["Most frequent first (descending)", "Least frequent first (ascending)"],
+                                            help="Choose how to sort the final results by frequency count"
+                                        )
+                                        
+                                        if st.button("Analyze Duplicates"):
+                                            processing_text.text("Counting record frequencies...")
+                                            progress_bar.progress(0.3)
+                                            
+                                            # Create a subset for duplicate detection if using selected columns
+                                            if duplicate_method == "Selected columns only":
+                                                comparison_df = analysis_df[columns_for_comparison]
+                                            else:
+                                                comparison_df = analysis_df
+                                            
+                                            # Count frequencies using value_counts on the combination of selected columns
+                                            if len(columns_for_comparison) == 1:
+                                                # Single column comparison - handle NaN values properly
+                                                analysis_df['temp_key'] = analysis_df[columns_for_comparison[0]].fillna('MISSING').astype(str)
+                                                frequency_counts = analysis_df['temp_key'].value_counts()
+                                            else:
+                                                # Multiple column comparison - create a composite key
+                                                # Handle NaN values and ensure proper string conversion
+                                                analysis_df['temp_key'] = comparison_df.apply(
+                                                    lambda row: '|'.join([str(val) if pd.notna(val) else 'MISSING' for val in row]), axis=1
+                                                )
+                                                frequency_counts = analysis_df['temp_key'].value_counts()
+                                            
+                                            progress_bar.progress(0.5)
+                                            
+                                            # Map frequency counts back to the original data
+                                            processing_text.text("Adding frequency counts to records...")
+                                            analysis_df['FREQUENCY_COUNT'] = analysis_df['temp_key'].map(frequency_counts)
+                                            
+                                            # Remove the temporary key column
+                                            analysis_df = analysis_df.drop('temp_key', axis=1)
+                                            
+                                            progress_bar.progress(0.7)
+                                            
+                                            # Remove duplicates - keep first occurrence of each unique record
+                                            processing_text.text("Removing duplicates...")
+                                            if duplicate_method == "Selected columns only":
+                                                unique_df = analysis_df.drop_duplicates(subset=columns_for_comparison, keep='first')
+                                            else:
+                                                unique_df = analysis_df.drop_duplicates(keep='first')
+                                            
+                                            progress_bar.progress(0.8)
+                                            
+                                            # Sort by frequency count
+                                            processing_text.text("Sorting by frequency...")
+                                            ascending_order = sort_order.startswith("Least frequent")
+                                            unique_df = unique_df.sort_values('FREQUENCY_COUNT', ascending=ascending_order)
+                                            
+                                            # Reorder columns to put FREQUENCY_COUNT first
+                                            cols = ['FREQUENCY_COUNT'] + [col for col in unique_df.columns if col != 'FREQUENCY_COUNT']
+                                            output_df = unique_df[cols].reset_index(drop=True)
+                                            
+                                            progress_bar.progress(0.9)
+                                            
+                                            # Display results
+                                            st.success(f"✅ Duplicate analysis complete! Processed {len(analysis_df):,} original records")
+                                            
+                                            # Show comprehensive statistics
+                                            st.subheader("Analysis Results")
+                                            
+                                            # Summary metrics
+                                            col1, col2, col3, col4 = st.columns(4)
+                                            with col1:
+                                                st.metric("Original Records", f"{len(analysis_df):,}")
+                                            with col2:
+                                                st.metric("Unique Records", f"{len(output_df):,}")
+                                            with col3:
+                                                duplicates_removed = len(analysis_df) - len(output_df)
+                                                st.metric("Duplicates Removed", f"{duplicates_removed:,}")
+                                            with col4:
+                                                duplicate_rate = (duplicates_removed / len(analysis_df) * 100) if len(analysis_df) > 0 else 0
+                                                st.metric("Duplicate Rate", f"{duplicate_rate:.1f}%")
+                                            
+                                            # Show detection method used
+                                            st.info(f"**Duplicate detection method:** {duplicate_method}")
+                                            if duplicate_method == "Selected columns only":
+                                                st.write(f"**Columns used for comparison:** {', '.join(columns_for_comparison)}")
+                                            
+                                            # Show frequency distribution
+                                            with st.expander("Frequency Distribution Analysis"):
+                                                freq_stats = output_df['FREQUENCY_COUNT'].describe()
+                                                
+                                                col1, col2 = st.columns(2)
+                                                with col1:
+                                                    st.write("**Frequency Statistics:**")
+                                                    st.dataframe(freq_stats.to_frame("Value"), use_container_width=True)
+                                                
+                                                with col2:
+                                                    st.write("**Top 10 Most Frequent Records:**")
+                                                    top_frequent = output_df.head(10)[['FREQUENCY_COUNT'] + columns_for_comparison[:3]]
+                                                    st.dataframe(top_frequent, use_container_width=True)
+                                                
+                                                # Frequency distribution chart
+                                                freq_distribution = output_df['FREQUENCY_COUNT'].value_counts().sort_index()
+                                                st.write("**Distribution of Frequency Counts:**")
+                                                st.bar_chart(freq_distribution)
+                                            
+                                            # Show sample of results
+                                            with st.expander("Sample of Results (Top 10 Records)"):
+                                                st.dataframe(output_df.head(10), use_container_width=True)
+                                            
+                                            # Records that appeared only once
+                                            unique_records = len(output_df[output_df['FREQUENCY_COUNT'] == 1])
+                                            if unique_records > 0:
+                                                st.write(f"📊 **Records appearing only once:** {unique_records:,} ({unique_records/len(output_df)*100:.1f}% of unique records)")
+                                            
+                                            # Records that appeared multiple times
+                                            duplicate_records = len(output_df[output_df['FREQUENCY_COUNT'] > 1])
+                                            if duplicate_records > 0:
+                                                st.write(f"🔄 **Records with duplicates:** {duplicate_records:,} ({duplicate_records/len(output_df)*100:.1f}% of unique records)")
+                                                max_frequency = output_df['FREQUENCY_COUNT'].max()
+                                                st.write(f"📈 **Highest frequency count:** {max_frequency}")
+                                            
+                                            # Provide download options
+                                            st.subheader("Download Results")
+                                            output_format = st.radio("Output format:", 
+                                                                   ("CSV", "Excel", "JSON"), 
+                                                                   horizontal=True)
+                                            
+                                            create_download_button(
+                                                output_df,
+                                                "duplicate_analysis_results",
+                                                output_format.lower(),
+                                                f"Download {len(output_df):,} unique records with frequency counts"
+                                            )
+                                            
+                                            # Usage tips
+                                            with st.expander("💡 How to Use These Results"):
+                                                st.markdown("""
+                                                **Understanding Your Results:**
+                                                - **FREQUENCY_COUNT**: Shows how many times each record appeared in your original data
+                                                - **High frequency records**: May indicate common entries, popular items, or data quality issues
+                                                - **Single occurrence records**: Unique entries that appeared only once
+                                                
+                                                **Common Use Cases:**
+                                                - **Data Quality**: Identify frequently duplicated records that need cleanup
+                                                - **Popular Analysis**: Find most common entries (customers, products, etc.)
+                                                - **Deduplication**: Clean dataset with frequency information preserved
+                                                - **Pattern Recognition**: Understand data distribution patterns
+                                                """)
+                                            
+                                            progress_bar.progress(1.0)
+                                
+                                # If no matching option is found
+                                else:
+                                        st.error(f"Processing logic for '{option}' is not yet implemented. Please select a different option.")
+                                        st.info("Available options with full implementations:")
+                                        implemented_options = [
+                                            "Address + HoNWIncome", "Address + HoNWIncome & Phone",
+                                            "Address + HoNWIncome First Name Last Name", "Business Address + First Name Last Name",
+                                            "Full Combined Address", "Phone & Credit Score", "Complete Contact Export",
+                                            "ZIP Split: Address+HoNW", "ZIP Split: Address+HoNW+Phone",
+                                            "File Combiner and Batcher", "Sha256", "Split by State",
+                                            "B2B Job Titles Focus", "Filter by Zip Codes", "Company Industry",
+                                            "Duplicate Analysis & Frequency Counter", "DNC Phone Number Cleaner"
+                                        ]
+                                        for opt in implemented_options:
+                                            st.write(f"• {opt}")
     
     with tab2:
-        st.header("Data Visualization")
-        st.info("Upload a file to visualize data distributions and patterns.")
+        st.header("📊 Data Insights & Visualization")
         
-        # Simple visualization options
-        uploaded_file_viz = st.file_uploader("Upload CSV for visualization", type=["csv"])
-        
-        if uploaded_file_viz:
-            try:
-                df_viz = pd.read_csv(uploaded_file_viz)
-                st.success(f"File loaded with {len(df_viz):,} rows and {len(df_viz.columns):,} columns")
+        # Check if there's processed data to visualize
+        if 'processed_data' in st.session_state:
+            df_viz = st.session_state['processed_data']
+            
+            st.subheader("Dataset Overview")
+            
+            # Basic statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Records", f"{len(df_viz):,}")
+            with col2:
+                st.metric("Total Columns", f"{len(df_viz.columns):,}")
+            with col3:
+                completeness = (df_viz.count().sum() / (len(df_viz) * len(df_viz.columns)) * 100)
+                st.metric("Data Completeness", f"{completeness:.1f}%")
+            
+            # Column completeness chart
+            st.subheader("Column Completeness Analysis")
+            col_completeness = (df_viz.count() / len(df_viz) * 100).sort_values(ascending=True)
+            st.bar_chart(col_completeness)
+            
+            # Data quality insights
+            st.subheader("Data Quality Insights")
+            
+            # Check for common data quality issues
+            quality_issues = []
+            
+            # Missing data
+            missing_data_pct = (df_viz.isnull().sum() / len(df_viz) * 100)
+            high_missing = missing_data_pct[missing_data_pct > 50]
+            if len(high_missing) > 0:
+                quality_issues.append(f"📊 {len(high_missing)} columns have >50% missing data")
+            
+            # Duplicate rows
+            duplicates = df_viz.duplicated().sum()
+            if duplicates > 0:
+                quality_issues.append(f"🔄 {duplicates:,} duplicate rows found ({duplicates/len(df_viz)*100:.1f}%)")
+            
+            # Phone number patterns (if phone columns exist)
+            phone_cols = [col for col in df_viz.columns if 'PHONE' in col.upper()]
+            if phone_cols:
+                for col in phone_cols:
+                    if col in df_viz.columns:
+                        # Safely convert to string and handle NaN values before using .str accessor
+                        phone_series = df_viz[col].fillna('').astype(str)
+                        valid_phones = phone_series.str.match(r'^\(\d{3}\) \d{3}-\d{4}$').sum()
+                        total_phones = df_viz[col].notna().sum()
+                        if total_phones > 0:
+                            quality_issues.append(f"📞 {col}: {valid_phones}/{total_phones} ({valid_phones/total_phones*100:.1f}%) properly formatted")
+            
+            if quality_issues:
+                for issue in quality_issues:
+                    st.write(f"• {issue}")
+            else:
+                st.success("✅ No major data quality issues detected!")
                 
-                # Select columns for visualization
-                numeric_cols = df_viz.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                categorical_cols = df_viz.select_dtypes(include=['object', 'category']).columns.tolist()
+        else:
+            # Show sample visualizations and features when no data is loaded
+            st.info("📈 Upload and process a file to see detailed data visualizations and insights!")
+            
+            st.subheader("Available Visualizations")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**📊 Data Quality Metrics**")
+                st.write("• Column completeness analysis")
+                st.write("• Missing data patterns")
+                st.write("• Duplicate detection")
+                st.write("• Data format validation")
                 
-                # Add visualization options here
-                viz_type = st.selectbox(
-                    "Select Visualization Type",
-                    options=["Column Distribution", "Map View (if coordinates available)", "Data Summary"]
-                )
+                st.write("**🗺️ Geographic Insights**")
+                st.write("• State distribution charts")
+                st.write("• ZIP code coverage maps")
+                st.write("• Address completion rates")
+            
+            with col2:
+                st.write("**📱 Contact Data Analysis**")
+                st.write("• Phone number format validation")
+                st.write("• Email domain analysis")
+                st.write("• DNC status distribution")
                 
-                if viz_type == "Column Distribution":
-                    if categorical_cols:
-                        selected_col = st.selectbox("Select column to visualize", categorical_cols)
-                        
-                        # Limit to top N categories
-                        top_n = st.slider("Show top N categories", 5, 50, 20)
-                        
-                        # Create distribution
-                        value_counts = df_viz[selected_col].value_counts().head(top_n)
-                        
-                        st.subheader(f"Distribution of {selected_col} (Top {top_n})")
-                        st.bar_chart(value_counts)
-                        
-                        # Show table of counts
-                        st.dataframe(pd.DataFrame({
-                            'Value': value_counts.index,
-                            'Count': value_counts.values,
-                            'Percentage': (value_counts.values / len(df_viz) * 100).round(2)
-                        }))
-                    else:
-                        st.warning("No categorical columns found for distribution visualization.")
-                
-                elif viz_type == "Data Summary":
-                    st.subheader("Data Summary")
-                    
-                    # Show basic stats for numeric columns
-                    if numeric_cols:
-                        st.write("**Numeric Columns Summary**")
-                        st.dataframe(df_viz[numeric_cols].describe(), use_container_width=True)
-                    
-                    # Show categorical columns summary
-                    if categorical_cols:
-                        st.write("**Categorical Columns Summary**")
-                        cat_summary = pd.DataFrame({
-                            'Column': categorical_cols,
-                            'Unique Values': [df_viz[col].nunique() for col in categorical_cols],
-                            'Most Common': [df_viz[col].value_counts().index[0] if not df_viz[col].value_counts().empty else None for col in categorical_cols],
-                            'Most Common %': [(df_viz[col].value_counts().iloc[0] / len(df_viz) * 100).round(2) if not df_viz[col].value_counts().empty else None for col in categorical_cols],
-                            'Missing %': [(df_viz[col].isna().sum() / len(df_viz) * 100).round(2) for col in categorical_cols]
-                        })
-                        st.dataframe(cat_summary, use_container_width=True)
-                
-            except Exception as e:
-                st.error(f"Error processing file for visualization: {str(e)}")
-                logger.error(f"Visualization error: {str(e)}", exc_info=True)
-    
+                st.write("**🏢 Business Data Insights**")
+                st.write("• Industry distribution")
+                st.write("• Job title frequency")
+                st.write("• Company size analysis")
+            
+            # Sample charts placeholder
+            st.subheader("Sample Data Quality Dashboard")
+            
+            # Create sample data for demonstration
+            import numpy as np
+            
+            # Sample completeness chart
+            sample_columns = ['FIRST_NAME', 'LAST_NAME', 'PERSONAL_ADDRESS', 'PERSONAL_CITY', 
+                            'PERSONAL_STATE', 'MOBILE_PHONE', 'BUSINESS_EMAIL', 'COMPANY_NAME']
+            sample_completeness = np.random.uniform(60, 95, len(sample_columns))
+            
+            completeness_data = pd.DataFrame({
+                'Column': sample_columns,
+                'Completeness %': sample_completeness
+            }).set_index('Column')
+            
+            st.write("**Sample Column Completeness Analysis:**")
+            st.bar_chart(completeness_data)
+            
+            # Sample state distribution
+            sample_states = ['CA', 'TX', 'FL', 'NY', 'PA', 'IL', 'OH', 'GA', 'NC', 'MI']
+            sample_counts = np.random.randint(100, 1000, len(sample_states))
+            
+            state_data = pd.DataFrame({
+                'State': sample_states,
+                'Records': sample_counts
+            }).set_index('State')
+            
+            st.write("**Sample State Distribution:**")
+            st.bar_chart(state_data)
+            
+            st.markdown("""
+            ### 💡 How to Use Data Visualizations:
+            
+            1. **Upload your CSV file** in the Process tab
+            2. **Select any processing option** to analyze your data
+            3. **Return to this tab** to see detailed insights
+            4. **Use the insights** to:
+               - Identify data quality issues
+               - Understand your dataset composition
+               - Make informed decisions about processing options
+               - Optimize your data for better results
+            
+            **Pro Tips:**
+            - Higher completeness percentages indicate better data quality
+            - Look for patterns in missing data to identify collection issues
+            - Use geographic distribution to plan targeted campaigns
+            - Monitor phone/email format compliance for better deliverability
+            """)
+
     with tab3:
         st.header("Frequently Asked Questions")
         
