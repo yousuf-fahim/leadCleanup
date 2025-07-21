@@ -21,7 +21,9 @@ The Lead Cleanup Suite is a comprehensive Streamlit-based application for proces
 - **Comprehensive Validation**: Automatic verification of DNC cleaning accuracy
 
 ### 🔧 **Data Processing Options**
-- **Address + HoNWIncome**: Combine address with homeowner, net worth, and income data
+- **Address + HoNWIncome**: Combine address with homeowner, net worth, and income range
+- **Address + HoNWIncome First Name Last Name**: Add personal identifiers to homeowner data
+- **Business Address + First Name Last Name**: Process business-focused contact data
 - **ZIP Split**: Split data by ZIP codes with address and phone information
 - **File Combiner and Batcher**: Merge multiple files and create manageable batches
 - **Sha256**: Generate hashed email data for privacy compliance
@@ -30,13 +32,22 @@ The Lead Cleanup Suite is a comprehensive Streamlit-based application for proces
 - **Split by State**: Organize data by state for targeted campaigns
 - **B2B Job Titles Focus**: Extract business-focused data with job titles and company info
 - **Filter by Zip Codes**: Target specific geographic areas
+- **Company Industry**: Filter data by industry classifications
 - **Complete Contact Export**: Full contact dataset with all available information
+- **Duplicate Analysis & Frequency Counter**: Identify and analyze duplicate records
+
+### 📊 **Smart Format Detection**
+- Automatically detects legacy and enhanced data formats
+- Normalizes column structures for consistent processing
+- Provides format-specific optimizations
+- Handles format-specific fields appropriately
 
 ### ⚙️ **Advanced Settings**
 - **Auto Address Cleaning**: Automatic address standardization
 - **Phone Number Formatting**: Consistent phone number formatting
 - **Batch Size Control**: Manage output file sizes (default: 2,000 rows)
 - **Multiple Output Formats**: CSV, Excel, and JSON downloads
+- **Preview Settings**: Configurable data preview options
 
 ## Requirements
 - Python 3.x
@@ -44,14 +55,19 @@ The Lead Cleanup Suite is a comprehensive Streamlit-based application for proces
   - `streamlit`
   - `pandas` 
   - `usaddress`
-  - `hashlib`
-  - `zipfile`
+  - `openpyxl` (for Excel output)
   - `io`
+  - `zipfile`
   - `re`
+  - `logging`
+  - `gc` (for memory management)
+  - `psutil` (optional, for memory monitoring)
+  - `datetime`
+  - `os`
 
 You can install the dependencies using:
 ```bash
-pip install streamlit pandas usaddress
+pip install streamlit pandas usaddress openpyxl psutil
 ```
 
 ## How to Use
@@ -64,11 +80,18 @@ pip install streamlit pandas usaddress
    - Enable/disable auto address cleaning
    - Enable/disable phone number formatting  
    - Set batch size for large datasets
+   - Configure preview settings
 4. **Select processing option** from the available tools
 5. **Configure option-specific settings** as needed
 6. **Process your data** and download results in your preferred format
 
 ## Supported Data Formats
+
+### Format Detection
+The application can detect and process:
+- **Classic Format**: Traditional column structure with standard fields
+- **Enhanced Format**: Extended dataset with additional fields like UUID, skills, etc.
+- **Custom Format**: Attempts to work with available columns in custom datasets
 
 ### Required Columns (varies by processing option)
 **Basic Address Processing:**
@@ -118,20 +141,11 @@ MOBILE_PHONE: "+1111111111, +3333333333" (middle phone removed)
 - **Complex**: `'N, Y, N'`, `'Y, N, Y, N'` (comma-separated lists)
 - **Fallback**: Any value containing 'Y' will trigger phone removal
 
-## Test Files Included
-- **`test_production_dnc.csv`**: Ready-to-use test file with real data patterns
-- **`test_enhanced_dnc.py`**: Logic validation test suite  
-- **`test_real_world_dnc.py`**: Real data pattern simulation
-- **`TASK_COMPLETED.md`**: Comprehensive documentation of recent enhancements
-
-## Recent Enhancements (May 2025)
-- ✅ **Enhanced DNC Phone Number Cleaner**: Now supports complex comma-separated phone-to-DNC mapping
-- ✅ **Runtime Error Fixes**: Resolved pandas Series concatenation issues
-- ✅ **Comprehensive Testing**: Added production-ready test suites
-- ✅ **Real Data Validation**: Tested with actual user data patterns
-
-## Sample CSV
-A sample CSV file can be downloaded [here](https://drive.google.com/file/d/19CdaLPNq7SUY1ROx0RgLdFD9gQI9JrSh/view?usp=sharing).
+## Performance Enhancements
+- **Memory Management**: Automatic garbage collection for large datasets
+- **Chunk Processing**: Processes large files in manageable chunks
+- **Progress Tracking**: Visual progress indicators during processing
+- **Responsive UI**: Mobile-friendly interface with optimized controls
 
 ## Troubleshooting
 
