@@ -1714,217 +1714,276 @@ def main():
                                         st.error("No DNC columns found in the dataset. Please ensure your data contains columns with 'DNC' in the name.")
                                     else:
                                         # Configuration Section
-                                        st.subheader("DNC Column Selection")
+                                        st.subheader("DNC Processing Setup")
                                         
-                                        # Set default to 'DIRECT_DNC' if available, otherwise first DNC column
-                                        default_index = 0
-                                        if 'DIRECT_DNC' in potential_dnc_cols:
-                                            default_index = potential_dnc_cols.index('DIRECT_DNC')
+                                        # Map phone columns to their corresponding DNC columns
+                                        phone_dnc_mapping = {
+                                            'MOBILE_PHONE': 'MOBILE_PHONE_DNC',
+                                            'DIRECT_NUMBER': 'DIRECT_DNC',
+                                            'PERSONAL_PHONE': 'PERSONAL_PHONE_DNC',
+                                            'COMPANY_PHONE': 'COMPANY_PHONE_DNC',
+                                            'SKIPTRACE_B2B_PHONE': 'SKIPTRACE_B2B_PHONE_DNC'
+                                        }
                                         
-                                        selected_dnc_col = st.selectbox(
-                                            "Select DNC column to process:",
-                                            options=potential_dnc_cols,
-                                            index=default_index,
-                                            help="Choose which DNC column to use for phone number cleaning"
-                                        )
+                                        # Identify available phone columns and their matching DNC columns
+                                        available_pairs = []
+                                        for phone_col, dnc_col in phone_dnc_mapping.items():
+                                            if phone_col in output_df.columns and dnc_col in output_df.columns:
+                                                available_pairs.append((phone_col, dnc_col))
                                         
-                                        # Show DNC column preview
-                                        with st.expander("Preview DNC Column Data"):
-                                            dnc_sample = output_df[selected_dnc_col].fillna('MISSING').head(20)
-                                            st.write("**Sample values from selected DNC column:**")
-                                            for i, val in enumerate(dnc_sample):
-                                                st.write(f"Row {i+1}: `{val}`")
+                                        if not available_pairs:
+                                            st.warning("⚠️ No matching phone/DNC column pairs found. Looking for pairs like MOBILE_PHONE/MOBILE_PHONE_DNC.")
+                                            st.info("Available DNC columns: " + ", ".join(potential_dnc_cols))
+                                        else:
+                                            # Show what will be processed
+                                            with st.expander("Phone/DNC Column Pairs to Process"):
+                                                for phone_col, dnc_col in available_pairs:
+                                                    st.write(f"- **{phone_col}** → checked against **{dnc_col}**")
+                                        
+                                        # Show data preview before processing
+                                        with st.expander("📊 Data Preview Before Processing"):
+                                            st.write("**First 5 rows showing phone and DNC columns:**")
+                                            preview_cols = []
+                                            for phone_col, dnc_col in available_pairs:
+                                                preview_cols.extend([phone_col, dnc_col])
+                                            if 'FIRST_NAME' in output_df.columns:
+                                                preview_cols = ['FIRST_NAME', 'LAST_NAME'] + preview_cols
+                                            available_preview_cols = [col for col in preview_cols if col in output_df.columns]
+                                            st.dataframe(output_df[available_preview_cols].head(5), use_container_width=True)
                                         
                                         # Process button
                                         if st.button("Process DNC Cleaning", key="dnc_process_btn"):
                                             with st.spinner("Processing DNC phone number cleaning..."):
                                                 progress_bar.progress(0.2)
                                                 
-                                                # Identify all phone number columns available in the data
-                                                all_phone_cols = ['MOBILE_PHONE', 'DIRECT_NUMBER', 'PERSONAL_PHONE', 'COMPANY_PHONE', 'SKIPTRACE_B2B_PHONE']
-                                                available_phone_cols = [col for col in all_phone_cols if col in output_df.columns]
-                                                
-                                                processing_text.text("Removing phone numbers where DNC = 'Y'...")
-                                                progress_bar.progress(0.4)
-                                                
-                                                # Count original phone numbers
-                                                original_phones = {}
-                                                for col in available_phone_cols:
-                                                    original_phones[col] = sum(output_df[col].notna() & (output_df[col] != ''))
-                                                
-                                                # Clean and prepare DNC column
-                                                output_df[selected_dnc_col] = output_df[selected_dnc_col].fillna('N').astype(str).str.strip()
-                                                
-                                                # Enhanced logic: Handle both simple and complex DNC patterns
-                                                # Simple: 'Y' -> remove all phone numbers
-                                                # Complex: 'Y, N, Y' with '+1234, +5678, +9012' -> remove +5678 only
-                                                
-                                                progress_bar.progress(0.6)
-                                                
-                                                # Track rows that had phone numbers removed due to DNC 'Y'
-                                                rows_with_dnc_y = set()
-                                                
-                                                # Process each row individually to handle complex patterns
-                                                for idx, row in output_df.iterrows():
-                                                    dnc_value = str(row[selected_dnc_col]).upper().strip()
+                                                if not available_pairs:
+                                                    st.error("No phone/DNC pairs to process.")
+                                                else:
+                                                    processing_text.text("Removing phone numbers where DNC = 'Y'...")
+                                                    progress_bar.progress(0.4)
                                                     
-                                                    if not dnc_value or dnc_value in ['', 'NAN', 'NONE']:
-                                                        continue
+                                                    # Count original phone numbers
+                                                    original_phones = {}
+                                                    for phone_col, _ in available_pairs:
+                                                        original_phones[phone_col] = sum(output_df[phone_col].notna() & (output_df[phone_col] != ''))
                                                     
-                                                    # Process each phone column for this row
-                                                    for phone_col in available_phone_cols:
-                                                        if phone_col not in output_df.columns:
-                                                            continue
+                                                    # Clean and prepare all DNC columns - normalize to uppercase
+                                                    for _, dnc_col in available_pairs:
+                                                        output_df[dnc_col] = output_df[dnc_col].fillna('N').astype(str).str.strip().str.upper()
+                                                    
+                                                    # Clean phone columns - normalize empty values
+                                                    for phone_col, _ in available_pairs:
+                                                        output_df[phone_col] = output_df[phone_col].fillna('').astype(str)
+                                                        output_df[phone_col] = output_df[phone_col].apply(
+                                                            lambda x: '' if str(x).upper() in ['NAN', 'NONE', 'NULL', ''] else str(x).strip()
+                                                        )
+                                                    
+                                                    progress_bar.progress(0.6)
+                                                    
+                                                    # Track rows that had phone numbers removed due to DNC 'Y'
+                                                    rows_with_dnc_y = set()
+                                                    
+                                                    # Process each row individually to handle complex patterns
+                                                    for idx in range(len(output_df)):
+                                                        # Process each phone/DNC pair independently
+                                                        for phone_col, dnc_col in available_pairs:
+                                                            dnc_value = output_df.at[idx, dnc_col]
+                                                            phone_value = output_df.at[idx, phone_col]
                                                             
-                                                        phone_value = str(row[phone_col]) if pd.notna(row[phone_col]) else ''
-                                                        
-                                                        if not phone_value or phone_value in ['', 'nan', 'None']:
-                                                            continue
-                                                        
-                                                        # Check if this is a simple 'Y' case
-                                                        if dnc_value in ['Y', 'YES', 'TRUE', '1']:
-                                                            output_df.at[idx, phone_col] = ''
-                                                            rows_with_dnc_y.add(idx)
-                                                        
-                                                        # Check if this is a complex comma-separated case
-                                                        elif ',' in dnc_value:
-                                                            # Handle complex patterns like phone: "+1234, +5678" dnc: "N, Y"
-                                                            if ',' in phone_value:
-                                                                phone_list = [p.strip() for p in phone_value.split(',') if p.strip()]
-                                                                dnc_list = [d.strip().upper() for d in dnc_value.split(',') if d.strip()]
-                                                                
-                                                                # Keep phones where corresponding DNC is not 'Y'
-                                                                kept_phones = []
-                                                                had_removal = False
-                                                                
-                                                                for i in range(len(phone_list)):
-                                                                    # Use corresponding DNC value, or 'N' if no corresponding value
-                                                                    dnc_for_phone = dnc_list[i] if i < len(dnc_list) else 'N'
+                                                            # Skip if DNC is empty or N
+                                                            if not dnc_value or dnc_value == 'N':
+                                                                continue
+                                                            
+                                                            # Skip if phone is already empty
+                                                            if not phone_value or phone_value == '':
+                                                                continue
+                                                            
+                                                            # Check if this is a simple 'Y' case (dnc_value is already uppercase)
+                                                            if dnc_value in ['Y', 'YES', 'TRUE', '1']:
+                                                                output_df.at[idx, phone_col] = ''
+                                                                rows_with_dnc_y.add(idx)
+                                                            
+                                                            # Check if this is a complex comma-separated case
+                                                            elif ',' in dnc_value:
+                                                                # Handle complex patterns like phone: "+1234, +5678" dnc: "N, Y"
+                                                                if ',' in phone_value:
+                                                                    phone_list = [p.strip() for p in phone_value.split(',') if p.strip()]
+                                                                    dnc_list = [d.strip() for d in dnc_value.split(',') if d.strip()]  # Already uppercase
                                                                     
-                                                                    if dnc_for_phone not in ['Y', 'YES', 'TRUE', '1']:
-                                                                        kept_phones.append(phone_list[i])
-                                                                    else:
-                                                                        had_removal = True
+                                                                    # Keep phones where corresponding DNC is not 'Y'
+                                                                    kept_phones = []
+                                                                    had_removal = False
+                                                                    
+                                                                    for i in range(len(phone_list)):
+                                                                        # Use corresponding DNC value, or 'N' if no corresponding value
+                                                                        dnc_for_phone = dnc_list[i] if i < len(dnc_list) else 'N'
+                                                                        
+                                                                        if dnc_for_phone not in ['Y', 'YES', 'TRUE', '1']:
+                                                                            kept_phones.append(phone_list[i])
+                                                                        else:
+                                                                            had_removal = True
+                                                                    
+                                                                    # Update the phone field
+                                                                    output_df.at[idx, phone_col] = ', '.join(kept_phones) if kept_phones else ''
+                                                                    if had_removal:
+                                                                        rows_with_dnc_y.add(idx)
                                                                 
-                                                                # Update the phone field
-                                                                output_df.at[idx, phone_col] = ', '.join(kept_phones) if kept_phones else ''
-                                                                if had_removal:
+                                                                # Single phone with comma-separated DNC (fallback)
+                                                                elif 'Y' in dnc_value:
+                                                                    output_df.at[idx, phone_col] = ''
                                                                     rows_with_dnc_y.add(idx)
                                                             
-                                                            # Single phone with comma-separated DNC (fallback)
+                                                            # Check if DNC contains 'Y' anywhere (fallback for other patterns)
                                                             elif 'Y' in dnc_value:
                                                                 output_df.at[idx, phone_col] = ''
                                                                 rows_with_dnc_y.add(idx)
+                                                
+                                                    progress_bar.progress(0.8)
+                                                    
+                                                    # Calculate statistics
+                                                    final_phones = {}
+                                                    phones_removed = {}
+                                                    for phone_col, _ in available_pairs:
+                                                        final_phones[phone_col] = sum(output_df[phone_col].notna() & (output_df[phone_col] != ''))
+                                                        phones_removed[phone_col] = original_phones[phone_col] - final_phones[phone_col]
+                                                    
+                                                    total_phones_removed = sum(phones_removed.values())
+                                                    dnc_y_count = len(rows_with_dnc_y)
+                                                    dnc_n_count = len(output_df) - dnc_y_count
+                                                
+                                                    progress_bar.progress(1.0)
+                                                    
+                                                    # Display results
+                                                    st.success(f"✅ DNC phone number cleaning complete! Processed {len(output_df):,} rows")
+                                                
+                                                    # Show detailed statistics
+                                                    st.subheader("Cleaning Statistics")
+                                                    
+                                                    # Summary metrics
+                                                    col1, col2, col3, col4 = st.columns(4)
+                                                    with col1:
+                                                        st.metric("Total Rows", f"{len(output_df):,}")
+                                                    with col2:
+                                                        st.metric("DNC 'Y' Records", f"{dnc_y_count:,}")
+                                                    with col3:
+                                                        st.metric("DNC 'N' Records", f"{dnc_n_count:,}")
+                                                    with col4:
+                                                        st.metric("Phones Removed", f"{total_phones_removed:,}")
+                                                
+                                                    # Detailed phone number statistics
+                                                    if available_pairs:
+                                                        with st.expander("Detailed Phone Number Statistics"):
+                                                            phone_stats = []
+                                                            for phone_col, dnc_col in available_pairs:
+                                                                phone_stats.append({
+                                                                    'Phone Column': phone_col,
+                                                                    'DNC Column': dnc_col,
+                                                                    'Original Count': original_phones[phone_col],
+                                                                    'Final Count': final_phones[phone_col],
+                                                                    'Removed': phones_removed[phone_col],
+                                                                    'Removal %': f"{(phones_removed[phone_col] / original_phones[phone_col] * 100) if original_phones[phone_col] > 0 else 0:.1f}%"
+                                                                })
+                                                            
+                                                            stats_df = pd.DataFrame(phone_stats)
+                                                            st.dataframe(stats_df, use_container_width=True)
+                                                    
+                                                    # Show sample of cleaned data
+                                                    with st.expander("Sample of Processed Data"):
+                                                        sample_cols = []
+                                                        for phone_col, dnc_col in available_pairs:
+                                                            sample_cols.extend([phone_col, dnc_col])
+                                                        if 'FIRST_NAME' in output_df.columns:
+                                                            sample_cols = ['FIRST_NAME', 'LAST_NAME'] + sample_cols
+                                                    
+                                                        # Show samples of both Y and N records
+                                                        # Find rows where any DNC column contains 'Y'
+                                                        has_y_mask = pd.Series([False] * len(output_df))
+                                                        for _, dnc_col in available_pairs:
+                                                            has_y_mask |= output_df[dnc_col].str.contains('Y', na=False, regex=False)
                                                         
-                                                        # Check if DNC contains 'Y' anywhere (fallback for other patterns)
-                                                        elif 'Y' in dnc_value:
-                                                            output_df.at[idx, phone_col] = ''
-                                                            rows_with_dnc_y.add(idx)
-                                                
-                                                progress_bar.progress(0.8)
-                                                
-                                                # Calculate statistics
-                                                final_phones = {}
-                                                phones_removed = {}
-                                                for col in available_phone_cols:
-                                                    final_phones[col] = sum(output_df[col].notna() & (output_df[col] != ''))
-                                                    phones_removed[col] = original_phones[col] - final_phones[col]
-                                                
-                                                total_phones_removed = sum(phones_removed.values())
-                                                dnc_y_count = len(rows_with_dnc_y)
-                                                dnc_n_count = len(output_df) - dnc_y_count
-                                                
-                                                progress_bar.progress(1.0)
-                                                
-                                                # Display results
-                                                st.success(f"✅ DNC phone number cleaning complete! Processed {len(output_df):,} rows")
-                                                
-                                                # Show detailed statistics
-                                                st.subheader("Cleaning Statistics")
-                                                
-                                                # Summary metrics
-                                                col1, col2, col3, col4 = st.columns(4)
-                                                with col1:
-                                                    st.metric("Total Rows", f"{len(output_df):,}")
-                                                with col2:
-                                                    st.metric("DNC 'Y' Records", f"{dnc_y_count:,}")
-                                                with col3:
-                                                    st.metric("DNC 'N' Records", f"{dnc_n_count:,}")
-                                                with col4:
-                                                    st.metric("Phones Removed", f"{total_phones_removed:,}")
-                                                
-                                                # Detailed phone number statistics
-                                                if available_phone_cols:
-                                                    with st.expander("Detailed Phone Number Statistics"):
-                                                        phone_stats = []
-                                                        for col in available_phone_cols:
-                                                            phone_stats.append({
-                                                                'Column': col,
-                                                                'Original Count': original_phones[col],
-                                                                'Final Count': final_phones[col],
-                                                                'Removed': phones_removed[col],
-                                                                'Removal %': f"{(phones_removed[col] / original_phones[col] * 100) if original_phones[col] > 0 else 0:.1f}%"
-                                                            })
+                                                        dnc_y_sample = output_df[has_y_mask].head(5)
+                                                        dnc_n_sample = output_df[~has_y_mask].head(5)
                                                         
-                                                        stats_df = pd.DataFrame(phone_stats)
-                                                        st.dataframe(stats_df, use_container_width=True)
-                                                
-                                                # Show sample of cleaned data
-                                                with st.expander("Sample of Processed Data"):
-                                                    sample_cols = [selected_dnc_col] + available_phone_cols
-                                                    if 'FIRST_NAME' in output_df.columns:
-                                                        sample_cols = ['FIRST_NAME', 'LAST_NAME'] + sample_cols
+                                                        if not dnc_y_sample.empty:
+                                                            st.write("**Sample DNC 'Y' records (corresponding phone numbers should be empty):**")
+                                                            available_sample_cols = [col for col in sample_cols if col in output_df.columns]
+                                                            st.dataframe(dnc_y_sample[available_sample_cols], use_container_width=True)
+                                                        
+                                                        if not dnc_n_sample.empty:
+                                                            st.write("**Sample DNC 'N' records (phone numbers should be preserved):**")
+                                                            available_sample_cols = [col for col in sample_cols if col in output_df.columns]
+                                                            st.dataframe(dnc_n_sample[available_sample_cols], use_container_width=True)
                                                     
-                                                # Show samples of both Y and N records
-                                                    dnc_y_sample = output_df[output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)].head(5)
-                                                    dnc_n_sample = output_df[~output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)].head(5)
+                                                    # Show processing summary
+                                                    phone_col_names = [phone_col for phone_col, _ in available_pairs]
+                                                    dnc_col_names = [dnc_col for _, dnc_col in available_pairs]
+                                                    st.info(f"""
+                                                    **Processing Summary:**
+                                                    - 📋 Processed {len(available_pairs)} phone/DNC column pairs
+                                                    - 📞 Phone columns: {', '.join(phone_col_names)}
+                                                    - 🚫 DNC columns: {', '.join(dnc_col_names)}
+                                                    - 🚫 Removed phone numbers from {dnc_y_count:,} records with DNC 'Y' ({dnc_y_count/len(output_df)*100:.1f}%)
+                                                    - ✅ Preserved phone numbers in {dnc_n_count:,} records ({dnc_n_count/len(output_df)*100:.1f}%)
+                                                    - 📱 Total phone numbers removed: {total_phones_removed:,}
+                                                    """)
                                                     
-                                                    if not dnc_y_sample.empty:
-                                                        st.write("**Sample DNC 'Y' records (phone numbers should be empty):**")
-                                                        available_sample_cols = [col for col in sample_cols if col in output_df.columns]
-                                                        st.dataframe(dnc_y_sample[available_sample_cols], use_container_width=True)
+                                                    # Verification: Check that no records have phone numbers when their DNC column contains 'Y'
+                                                    verification_issues = []
+                                                    problematic_rows = []
                                                     
-                                                    if not dnc_n_sample.empty:
-                                                        st.write("**Sample DNC 'N' records (phone numbers should be preserved):**")
-                                                        available_sample_cols = [col for col in sample_cols if col in output_df.columns]
-                                                        st.dataframe(dnc_n_sample[available_sample_cols], use_container_width=True)
+                                                    for phone_col, dnc_col in available_pairs:
+                                                        # Find rows where DNC contains 'Y' but phone is not empty
+                                                        mask = (output_df[dnc_col].str.contains('Y', na=False, regex=False)) & \
+                                                               (output_df[phone_col].notna()) & \
+                                                               (output_df[phone_col] != '')
+                                                        
+                                                        dnc_y_with_phones = mask.sum()
+                                                        
+                                                        if dnc_y_with_phones > 0:
+                                                            verification_issues.append(f"{phone_col}/{dnc_col}: {dnc_y_with_phones} records")
+                                                            
+                                                            # Collect problematic rows for debugging
+                                                            problem_indices = output_df[mask].index.tolist()[:10]  # First 10
+                                                            for idx in problem_indices:
+                                                                problematic_rows.append({
+                                                                    'Row': idx + 2,  # +2 for Excel (header + 0-index)
+                                                                    'Phone Column': phone_col,
+                                                                    'Phone Value': output_df.at[idx, phone_col],
+                                                                    'DNC Column': dnc_col,
+                                                                    'DNC Value': output_df.at[idx, dnc_col]
+                                                                })
+                                                    
+                                                    if verification_issues:
+                                                        st.error("❌ **Verification Failed:**\n- " + "\n- ".join(verification_issues))
+                                                        
+                                                        # Show problematic rows for debugging
+                                                        with st.expander("🔍 Debug: Problematic Rows (first 10)"):
+                                                            st.warning("These rows have DNC='Y' but still have phone numbers:")
+                                                            debug_df = pd.DataFrame(problematic_rows)
+                                                            st.dataframe(debug_df, use_container_width=True)
+                                                            
+                                                            st.info("""
+                                                            **Debug Information:**
+                                                            - Row numbers shown are Excel row numbers (with header)
+                                                            - DNC values should be 'Y' or contain 'Y'
+                                                            - Phone values should be empty but are not
+                                                            - This suggests the cleaning logic didn't process these rows
+                                                            """)
+                                                    else:
+                                                        st.success("✅ **Verification Passed:** All phone numbers with DNC containing 'Y' have been removed successfully!")
                                                 
-                                                # Show processing summary
-                                                st.info(f"""
-                                                **Processing Summary:**
-                                                - 📋 Used DNC column: **{selected_dnc_col}**
-                                                - 📞 Processed {len(available_phone_cols)} phone columns: {', '.join(available_phone_cols)}
-                                                - 🚫 Removed phone numbers from {dnc_y_count:,} DNC 'Y' records ({dnc_y_count/len(output_df)*100:.1f}%)
-                                                - ✅ Preserved phone numbers in {dnc_n_count:,} DNC 'N' records ({dnc_n_count/len(output_df)*100:.1f}%)
-                                                - 📱 Total phone numbers removed: {total_phones_removed:,}
-                                                """)
-                                                
-                                                # Verification: Check that no records containing DNC 'Y' have phone numbers
-                                                verification_issues = []
-                                                for phone_col in available_phone_cols:
-                                                    dnc_y_with_phones = sum((output_df[selected_dnc_col].str.contains('Y', na=False, regex=False)) & 
-                                                                           (output_df[phone_col].notna()) & 
-                                                                           (output_df[phone_col] != ''))
-                                                    if dnc_y_with_phones > 0:
-                                                        verification_issues.append(f"{phone_col}: {dnc_y_with_phones} records with DNC containing 'Y' still have phone numbers")
-                                                
-                                                if verification_issues:
-                                                    st.error("❌ **Verification Failed:**\n" + "\n".join(verification_issues))
-                                                else:
-                                                    st.success("✅ **Verification Passed:** All records with DNC containing 'Y' have had their phone numbers removed successfully!")
-                                                
-                                                # Provide download options
-                                                output_format = st.radio("Output format:", 
-                                                                       ("CSV", "Excel", "JSON"), 
-                                                                       horizontal=True,
-                                                                       key="dnc_output_format")
-                                                
-                                                create_download_button(
-                                                    output_df,
-                                                    "dnc_cleaned_simple",
-                                                    output_format.lower(),
-                                                    f"Download DNC cleaned data with {len(output_df):,} rows"
-                                                )
+                                                    # Provide download options
+                                                    output_format = st.radio("Output format:", 
+                                                                           ("CSV", "Excel", "JSON"), 
+                                                                           horizontal=True,
+                                                                           key="dnc_output_format")
+                                                    
+                                                    create_download_button(
+                                                        output_df,
+                                                        "dnc_cleaned_simple",
+                                                        output_format.lower(),
+                                                        f"Download DNC cleaned data with {len(output_df):,} rows"
+                                                    )
                                 
                                 # ADDRESS + HONWINCOME (basic version without names)
                                 elif option == "Address + HoNWIncome":
