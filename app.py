@@ -1782,6 +1782,8 @@ def main():
                                                     
                                                     # Track rows that had phone numbers removed due to DNC 'Y'
                                                     rows_with_dnc_y = set()
+                                                    rows_processed_count = 0
+                                                    phones_cleared = 0
                                                     
                                                     # Process each row individually to handle complex patterns
                                                     for idx in range(len(output_df)):
@@ -1798,45 +1800,35 @@ def main():
                                                             if not phone_value or phone_value == '':
                                                                 continue
                                                             
-                                                            # Check if this is a simple 'Y' case (dnc_value is already uppercase)
+                                                            rows_processed_count += 1
+                                                            
+                                                            # Determine if we should remove this phone number
+                                                            should_remove = False
+                                                            
+                                                            # Case 1: Simple 'Y' - remove phone
                                                             if dnc_value in ['Y', 'YES', 'TRUE', '1']:
-                                                                output_df.at[idx, phone_col] = ''
-                                                                rows_with_dnc_y.add(idx)
+                                                                should_remove = True
                                                             
-                                                            # Check if this is a complex comma-separated case
+                                                            # Case 2: DNC has comma - check if it contains 'Y' anywhere
                                                             elif ',' in dnc_value:
-                                                                # Handle complex patterns like phone: "+1234, +5678" dnc: "N, Y"
-                                                                if ',' in phone_value:
-                                                                    phone_list = [p.strip() for p in phone_value.split(',') if p.strip()]
-                                                                    dnc_list = [d.strip() for d in dnc_value.split(',') if d.strip()]  # Already uppercase
-                                                                    
-                                                                    # Keep phones where corresponding DNC is not 'Y'
-                                                                    kept_phones = []
-                                                                    had_removal = False
-                                                                    
-                                                                    for i in range(len(phone_list)):
-                                                                        # Use corresponding DNC value, or 'N' if no corresponding value
-                                                                        dnc_for_phone = dnc_list[i] if i < len(dnc_list) else 'N'
-                                                                        
-                                                                        if dnc_for_phone not in ['Y', 'YES', 'TRUE', '1']:
-                                                                            kept_phones.append(phone_list[i])
-                                                                        else:
-                                                                            had_removal = True
-                                                                    
-                                                                    # Update the phone field
-                                                                    output_df.at[idx, phone_col] = ', '.join(kept_phones) if kept_phones else ''
-                                                                    if had_removal:
-                                                                        rows_with_dnc_y.add(idx)
-                                                                
-                                                                # Single phone with comma-separated DNC (fallback)
-                                                                elif 'Y' in dnc_value:
-                                                                    output_df.at[idx, phone_col] = ''
-                                                                    rows_with_dnc_y.add(idx)
+                                                                # If ANY DNC value in the comma-separated list is 'Y', remove the phone
+                                                                # This handles cases like "N, Y, Y" or "Y, N, N"
+                                                                dnc_list = [d.strip() for d in dnc_value.split(',') if d.strip()]
+                                                                if any(d in ['Y', 'YES', 'TRUE', '1'] for d in dnc_list):
+                                                                    should_remove = True
                                                             
-                                                            # Check if DNC contains 'Y' anywhere (fallback for other patterns)
+                                                            # Case 3: DNC contains 'Y' anywhere (catch-all)
                                                             elif 'Y' in dnc_value:
+                                                                should_remove = True
+                                                            
+                                                            # Remove the phone if any condition is met
+                                                            if should_remove:
                                                                 output_df.at[idx, phone_col] = ''
                                                                 rows_with_dnc_y.add(idx)
+                                                                phones_cleared += 1
+                                                    
+                                                    # Debug info
+                                                    st.info(f"🔍 **Debug:** Processed {rows_processed_count} phone/DNC checks, cleared {phones_cleared} phone fields")
                                                 
                                                     progress_bar.progress(0.8)
                                                     
