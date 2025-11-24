@@ -1802,30 +1802,47 @@ def main():
                                                             
                                                             rows_processed_count += 1
                                                             
-                                                            # Determine if we should remove this phone number
-                                                            should_remove = False
-                                                            
-                                                            # Case 1: Simple 'Y' - remove phone
+                                                            # Case 1: Simple DNC 'Y' - remove entire phone field
                                                             if dnc_value in ['Y', 'YES', 'TRUE', '1']:
-                                                                should_remove = True
-                                                            
-                                                            # Case 2: DNC has comma - check if it contains 'Y' anywhere
-                                                            elif ',' in dnc_value:
-                                                                # If ANY DNC value in the comma-separated list is 'Y', remove the phone
-                                                                # This handles cases like "N, Y, Y" or "Y, N, N"
-                                                                dnc_list = [d.strip() for d in dnc_value.split(',') if d.strip()]
-                                                                if any(d in ['Y', 'YES', 'TRUE', '1'] for d in dnc_list):
-                                                                    should_remove = True
-                                                            
-                                                            # Case 3: DNC contains 'Y' anywhere (catch-all)
-                                                            elif 'Y' in dnc_value:
-                                                                should_remove = True
-                                                            
-                                                            # Remove the phone if any condition is met
-                                                            if should_remove:
                                                                 output_df.at[idx, phone_col] = ''
                                                                 rows_with_dnc_y.add(idx)
                                                                 phones_cleared += 1
+                                                            
+                                                            # Case 2: Comma-separated DNC values - match positionally with phone numbers
+                                                            elif ',' in dnc_value:
+                                                                dnc_list = [d.strip() for d in dnc_value.split(',') if d.strip()]
+                                                                
+                                                                # If phone also has commas, match positionally
+                                                                if ',' in phone_value:
+                                                                    phone_list = [p.strip() for p in phone_value.split(',') if p.strip()]
+                                                                    
+                                                                    # Keep only phones where corresponding DNC is not 'Y'
+                                                                    kept_phones = []
+                                                                    had_removal = False
+                                                                    
+                                                                    for i in range(len(phone_list)):
+                                                                        # Use corresponding DNC value, or 'N' if no corresponding value exists
+                                                                        dnc_for_phone = dnc_list[i] if i < len(dnc_list) else 'N'
+                                                                        
+                                                                        if dnc_for_phone not in ['Y', 'YES', 'TRUE', '1']:
+                                                                            kept_phones.append(phone_list[i])
+                                                                        else:
+                                                                            had_removal = True
+                                                                    
+                                                                    # Update the phone field
+                                                                    output_df.at[idx, phone_col] = ', '.join(kept_phones) if kept_phones else ''
+                                                                    if had_removal:
+                                                                        rows_with_dnc_y.add(idx)
+                                                                        phones_cleared += 1
+                                                                
+                                                                else:
+                                                                    # Single phone with comma-separated DNC
+                                                                    # Use the FIRST DNC value to decide
+                                                                    first_dnc = dnc_list[0] if dnc_list else 'N'
+                                                                    if first_dnc in ['Y', 'YES', 'TRUE', '1']:
+                                                                        output_df.at[idx, phone_col] = ''
+                                                                        rows_with_dnc_y.add(idx)
+                                                                        phones_cleared += 1
                                                     
                                                     # Debug info
                                                     st.info(f"🔍 **Debug:** Processed {rows_processed_count} phone/DNC checks, cleared {phones_cleared} phone fields")
